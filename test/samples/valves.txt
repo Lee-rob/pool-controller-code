@@ -1,7 +1,8 @@
-# Valve actuator commands - CMD 0x1A (Pre-Valve-Command Frame) and CMD 0x41
-# (Valve Actuator Command).
+# Valves: the combo valve actuators - CMD 0x1A (Pre-Valve-Command Frame) and
+# CMD 0x41 (Valve Actuator Command) - then the valve zones - CMD 0x25 (Valve
+# Sync) and CMD 0x27 (Valve State Broadcast) - further down.
 #
-# Excerpted from two live captures on lawther's install (a Connect 10 with
+# The actuator section is excerpted from two live captures on lawther's install (a Connect 10 with
 # a gas heater plumbed to the spa). Each capture was stimulated by selecting a
 # mode in HA via MQTT.
 #
@@ -42,14 +43,13 @@ I (03:23:34.035) MSG_DECODER: [Touch Screen -> Broadcast] Mode - Spa
 # On this system, 0x27 appears exactly once per capture - after 0x14/0x15, and before 
 # 0x1A. The Touchscreen appears to republish valve state as a step of the sequence.
 #
-# This install has no zones configured, so that republish degenerates to the
-# short all-zero form. Do not read it as "the valves are idle" - the combo
-# actuators driven by the 0x41 below are a different subsystem and are never
-# reported here at all. The decoder calls the short form the "startup form"
-# because that is where it usually appears.
+# This install has no zones configured, so that republish carries a slot
+# count of zero and no slot entries. Do not read it as "the valves are idle" -
+# the combo actuators driven by the 0x41 below are a different subsystem and
+# are never reported here at all.
 
 I (03:23:34.595) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 0D 04 00 00 03
-I (03:23:34.595) MSG_DECODER: [Touch Screen -> Broadcast] Valve state broadcast (startup form)
+I (03:23:34.595) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (0 slots):
 02 00 50 FF FF 80 00 27 0D 04 00 00 03
 
 # The valve pair. The Pre-Valve-Command Frame (0x1A) is zero-payload and always
@@ -96,7 +96,7 @@ I (03:26:20.835) MSG_DECODER: [Touch Screen -> Broadcast] Mode - Pool
 02 00 50 FF FF 80 00 14 0D F1 01 01 03
 
 I (03:26:21.395) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 0D 04 00 00 03
-I (03:26:21.395) MSG_DECODER: [Touch Screen -> Broadcast] Valve state broadcast (startup form)
+I (03:26:21.395) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (0 slots):
 02 00 50 FF FF 80 00 27 0D 04 00 00 03
 
 # The same pair of valve commands, with the position flipped.
@@ -118,3 +118,78 @@ I (03:26:22.165) MSG_DECODER: [ICI Gas Heater -> Broadcast] Gas heater raw statu
 I (03:26:24.396) MSG_DECODER: RX MSG: 02 00 74 FF FF 80 00 12 10 16 00 00 00 00 00 03
 I (03:26:24.396) MSG_DECODER: [ICI Gas Heater -> Broadcast] Gas heater raw status - [00 00 00 00], decoded status - "Off"
 02 00 74 FF FF 80 00 12 10 16 00 00 00 00 00 03
+
+# ----------------------------------------------------------------------------
+# Valve zones being configured and switched (CMD 0x25 Valve Sync and CMD 0x27
+# Valve State Broadcast). Excerpted from two round 14 captures on a different
+# install, where Valve 1 was configured and switched On then Off, and later
+# Valve 2 was configured with Auto enabled and cycled through Auto and On.
+#
+# 0x27 is a slot count followed by one {configured, state, active} entry per
+# slot. It sits at zero slots until the first zone is configured, then jumps
+# straight to the full two slots - the unconfigured slot is sent as 00 00 00.
+# 0x25 is the matching active-valves bitmask (bit 0 = Valve 1, bit 1 = Valve 2)
+# sent to Internal Channels ~130 ms before the 0x27, in the Touchscreen's status
+# cycle. Both only join that cycle once a valve zone exists.
+
+# Valve 1 has just been configured: the first 0x25 of the capture, then the
+# first two-slot 0x27.
+
+I (02:37:24.519) MSG_DECODER: RX MSG: 02 00 50 00 6F 80 00 25 0D 73 00 00 03
+I (02:37:24.519) MSG_DECODER: [Touch Screen -> Internal Channels] Active valves - 0x00 [--]
+02 00 50 00 6F 80 00 25 0D 73 00 00 03
+I (02:37:24.649) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 00 00 00 03 03
+I (02:37:24.649) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (02:37:24.649) MSG_DECODER:   V1: Off (Inactive)
+I (02:37:24.649) MSG_DECODER:   V2: Unused
+02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 00 00 00 03 03
+
+# Valve 1 switched On at the Touchscreen. The 0x27 goes out straight away,
+# with no 0x25 ahead of it.
+
+I (02:37:33.750) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 02 01 00 00 00 06 03
+I (02:37:33.750) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (02:37:33.750) MSG_DECODER:   V1: On (Active)
+I (02:37:33.750) MSG_DECODER:   V2: Unused
+02 00 50 FF FF 80 00 27 13 0A 02 01 02 01 00 00 00 06 03
+
+# The 0x25 only catches up with the next status cycle, 3.7 s later.
+
+I (02:37:37.419) MSG_DECODER: RX MSG: 02 00 50 00 6F 80 00 25 0D 73 01 01 03
+I (02:37:37.419) MSG_DECODER: [Touch Screen -> Internal Channels] Active valves - 0x01 [-1]
+02 00 50 00 6F 80 00 25 0D 73 01 01 03
+
+# Second capture: Valve 2 has just been configured. The slot count stays at 2;
+# only Valve 2's entry changes.
+
+I (02:41:31.899) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 00 00 04 03
+I (02:41:31.899) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (02:41:31.899) MSG_DECODER:   V1: Off (Inactive)
+I (02:41:31.899) MSG_DECODER:   V2: Off (Inactive)
+02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 00 00 04 03
+
+# Valve 2 switched to Auto, then On. Auto with no timer running stays Inactive.
+
+I (02:44:10.919) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 01 00 05 03
+I (02:44:10.919) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (02:44:10.919) MSG_DECODER:   V1: Off (Inactive)
+I (02:44:10.919) MSG_DECODER:   V2: Auto (Inactive)
+02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 01 00 05 03
+I (02:44:15.319) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 02 01 07 03
+I (02:44:15.319) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (02:44:15.319) MSG_DECODER:   V1: Off (Inactive)
+I (02:44:15.319) MSG_DECODER:   V2: On (Active)
+02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 02 01 07 03
+
+# ----------------------------------------------------------------------------
+# Both valves On and active, from a round 8 capture on a third install
+# (run_5-with-valves). The only multi-bit 0x25 seen in any capture.
+
+I (345546) MSG_DECODER: RX MSG: 02 00 50 00 6F 80 00 25 0D 73 03 03 03
+I (345546) MSG_DECODER: [Touch Screen -> Internal Channels] Active valves - 0x03 [21]
+02 00 50 00 6F 80 00 25 0D 73 03 03 03
+I (345676) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 02 01 01 02 01 0A 03
+I (345676) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (345676) MSG_DECODER:   V1: On (Active)
+I (345676) MSG_DECODER:   V2: On (Active)
+02 00 50 FF FF 80 00 27 13 0A 02 01 02 01 01 02 01 0A 03

@@ -1423,7 +1423,7 @@ Unicast from the Touchscreen (`0x0050`) to Internal Channels (`0x006F`) carrying
 - Byte 10: Valve-active bitmask — bit 0 = valve 1, bit 1 = valve 2 (`0x00` = none active)
 - Byte 11: Data checksum (equals byte 10)
 
-**Observed values:**
+**Values:**
 
 | Value  | Meaning              |
 |--------|----------------------|
