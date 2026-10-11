@@ -676,8 +676,8 @@ Status broadcast emitted by multiple devices. The CMD byte is shared but the **p
 
 | Source                          | LENGTH | Payload shape                            | Status | Handler                       |
 |---------------------------------|--------|------------------------------------------|--------|-------------------------------|
-| `0x0050` Touchscreen            | `0x0E` | 2 bytes — always `01 00` or `05 00` observed        | ⚠️     | `handle_touchscreen_unknown1` |
-| `0x0062` Connect 8/10 Controller| `0x0F` | 3 bytes — heater state + service mode + unknowns | ⚠️     | `handle_heater`               |
+| `0x0050` Touchscreen            | `0x0E` | 2 bytes — `{flags, 00}`; `01`/`05`/`09` observed in byte 10 | ⚠️     | `handle_touchscreen_status`   |
+| `0x0062` Connect 8/10 Controller| `0x0F` | 3 bytes — unknown + heater state/service mode + unknown | ⚠️     | `handle_heater`               |
 | `0x0070` Genus Heater           | `0x10` | 4 bytes — `{00, status, 00, 00}`         | ⚠️     | `handle_genus_heater_status`  |
 | `0x0072` HiNRG / `0x0074` ICI Gas Heater | `0x10` | 4 bytes — `{00, status, 00, 00}` | ✅     | `handle_gas_heater_status`    |
 | `0x0081` VX 11S v3 Salt Chlorinator | `0x0D` | 2 bytes — always `00 00` observed   | ⚠️     | **No (doc only)**             |
@@ -688,17 +688,34 @@ Status broadcast emitted by multiple devices. The CMD byte is shared but the **p
 
 #### Touchscreen (`0x0050`) ⚠️
 
-Broadcast consistently after the firmware version message. Currently appears to always carry data `01 00` or `05 00`.
+The Touchscreen's own device status. Like the other devices in this family, it is sent alongside the device's [0x0A](#0x0a--firmware-version-) firmware version: ~120 ms after the Touchscreen's `0x0A`, at the head of its status sequence (`0x0A` → `0x12` → `0x05` → `0x06` → … → `0x0D` → `0x0B`), about every 60 s and in change bursts.
 
 Pattern: `02 00 50 FF FF 80 00 12 0E F0`
 
-Example: `02 00 50 FF FF 80 00 12 0E F0 05 00 05 03`
+Example:
+
+```
+02 00 50 FF FF 80 00 12 0E F0 05 00 05 03
+                              ^^ Byte 10: flags
+                                 ^^ Byte 11: always 0x00
+                                    ^^ Data checksum
+```
 
 Data fields:
-- Byte 10: Unknown (always `0x01` or `0x05` in observed samples)
-- Byte 11: Unknown (always `0x00` in observed samples)
+- Byte 10: Bit 0 is always set. Bits 2–3 hold a value of 0–2 (3 never seen); bits 1 and 4–7 are always clear. Meaning unknown ⚠️
+- Byte 11: Always `0x00` in observed samples
 
-Part of the regular touchscreen status sequence.
+Observed values of byte 10:
+
+| Value  | Bits 3–2 | Where seen |
+|--------|----------|------------|
+| `0x01` | 0        | ninkasi and skymuster installs |
+| `0x05` | 1        | Every capture from installs with a RolaChem (`0x0090`), including the round 8 reference install — constant whatever the channel, heater, mode or service-mode state |
+| `0x09` | 2        | ninkasi and skymuster installs |
+
+On ninkasi and skymuster the value moves between `0x01` and `0x09` with the Filter channel, but not consistently: ninkasi gave `0x09` only while the Filter was Auto (Active) and `0x01` while it ran at a manual Medium/High Speed, whereas skymuster gave `0x09` at High Speed (Active). The 0/1/2 value range would fit the Off/Auto/On convention, but what it reports is unconfirmed.
+
+`handle_touchscreen_status` logs the value; anything outside the three observed values, or a non-zero byte 11, is recorded as an "undocumented" entry on the Unknown Messages page.
 
 ---
 
@@ -714,17 +731,18 @@ Examples:
 02 00 62 FF FF 80 00 12 0F 03 00 01 08 09 03   Heater On
 02 00 62 FF FF 80 00 12 0F 03 00 00 08 08 03   Heater Off
 02 00 62 FF FF 80 00 12 0F 03 00 02 08 0A 03   Service Mode (heater off)
+                              ^^ Unknown (0x00 or 0x04 observed)
                                  ^^ Status bitfield
-                                    ^^ Unknown (always 0x08 observed)
+                                    ^^ Unknown (0x00 or 0x08 observed)
 ```
 
 Data fields:
-- Byte 10: Padding/unused (always `0x00` observed)
+- Byte 10: Unknown — `0x00` on most installs; `0x04` on the skymuster install (HiNRG gas heater `0x0072`), including while that external heater was running with the heater bit in byte 11 still clear ⚠️
 - Byte 11: Status bitfield:
   - Bit 0: Heater state (`0` = Off, `1` = On)
   - Bit 1: Service mode (`0` = Off, `1` = On)
   - Bits 2–7: Unknown (always `0` observed)
-- Byte 12: Unknown (maybe bitmask or interlock?) — always `0x08` observed
+- Byte 12: Unknown (maybe bitmask or interlock?) — `0x08` or `0x00`. It differs between captures from the same install (the round 8 reference install shows `0x08` in some captures and `0x00` in others, such as round 8 `run_3`–`run_6`), and is always `0x00` on ninkasi ⚠️
 
 Timing and the controller's mode buttons:
 
@@ -732,7 +750,7 @@ Timing and the controller's mode buttons:
 - **Auto clears service mode.** Pressing Auto sent a frame with bit 1 cleared, then ~70 ms later the [0x2A](#0x2a--favourite-control-command-) All Auto (`0x81`) command to the Touchscreen.
 - **Timeout mode reports as service mode.** Timeout is service mode with a time limit: the controller stays in service mode for 1 hour, then returns to Auto by itself. Pressing Timeout while already in service mode produced no frame from `0x0062`, and the next periodic frame still carried just bit 1 (`00 02 08`). Nothing in this frame tells Timeout apart from Service.
 
-`handle_heater` monitors this frame for deviations from the observed constants: byte 10 ≠ `0x00`, byte 11 with any bit above bit 1 set, or byte 12 ≠ `0x08` is recorded as an "undocumented" entry on the Unknown Messages page.
+`handle_heater` monitors this frame for deviations from the observed values: byte 10 other than `0x00`/`0x04`, byte 11 with any bit above bit 1 set, or byte 12 other than `0x00`/`0x08` is recorded as an "undocumented" entry on the Unknown Messages page.
 
 ---
 

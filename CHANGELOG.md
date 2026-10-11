@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The Valve State Broadcast (CMD `0x27`) is now decoded as a single layout, dispatched on the CMD byte, instead of as two fixed frames. The old short "startup" frame turns out to be the same message with a slot count of zero, which is what the Touchscreen sends while no valve zone is configured; configuring a valve takes the count straight to two. A zero-slot broadcast now clears the valve slot count, so the web UI lists no valves. The log now matches the channel status layout, with one row per slot including unused ones. PROTOCOL.md documents the layout, when the Touchscreen sends `0x27` and `0x25` (they join its status cycle only once a valve zone exists), and how they pair with CMD `0x0B`/`0x0D`
 ### Fixed
+- Stopped flagging normal CMD `0x12` device-status values as undocumented. The Touchscreen's status frame sends `0x09` on some installs (as well as `0x01`/`0x05`), and the Connect 8/10's frame sends `0x04` in byte 10 and `0x00` in byte 12, so these were filling the Unknown Messages page. The Touchscreen frame is now logged as "Touchscreen status" rather than "Touchscreen other status", and PROTOCOL.md no longer claims these bytes are constant; what the Touchscreen's value means is still unknown
 ### Removed
 ### Deprecated
 ### Security

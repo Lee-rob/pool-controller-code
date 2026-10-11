@@ -97,7 +97,7 @@ static const char *MSG_TYPE_CHANNELS =              "02 00 50 00 6F 80 00 0D 0D 
 static const char *MSG_TYPE_CHANNEL_STATUS =        "02 00 50 FF FF 80 00 0B 25 00";
 static const char *MSG_TYPE_LIGHT_CONFIG =          "02 00 50 FF FF 80 00 06 0E E4";
 static const char *MSG_TYPE_CONTROLLER_TIME =       "02 00 50 FF FF 80 00 FD 0F DC";
-static const char *MSG_TYPE_TOUCHSCREEN_UNKNOWN1 =  "02 00 50 FF FF 80 00 12 0E F0";
+static const char *MSG_TYPE_TOUCHSCREEN_STATUS =    "02 00 50 FF FF 80 00 12 0E F0";
 static const char *MSG_TYPE_TOUCHSCREEN_UNKNOWN3 =  "02 00 50 FF FF 80 00 05 0D E2";
 
 // Motorised valve actuators (Touchscreen 0x0050 -> Internal Control 0x007F),
@@ -1331,12 +1331,12 @@ static bool handle_heater(
              addr_info, heater_on ? "On" : "Off", service_mode ? "On" : "Off");
 
     // Flag undocumented field values for protocol research (PROTOCOL.md 0x12,
-    // Connect 8/10 variant). Byte 10 is documented padding (always 0x00), byte
-    // 11 a status bitfield (bit 0 heater, bit 1 service mode; higher bits
-    // unseen), and byte 12 an unknown "maybe bitmask/interlock?" field observed
-    // constant at 0x08. Any deviation from these is surfaced for capture.
-    bool undocumented = (payload[0] != 0x00) || (status & ~0x03) != 0;
-    if (payload_len >= 3 && payload[2] != 0x08) {
+    // Connect 8/10 variant). Byte 10 is unknown, observed as 0x00 or 0x04;
+    // byte 11 a status bitfield (bit 0 heater, bit 1 service mode; higher bits
+    // unseen); byte 12 unknown, observed as 0x00 or 0x08. Any other value is
+    // surfaced for capture.
+    bool undocumented = (payload[0] != 0x00 && payload[0] != 0x04) || (status & ~0x03) != 0;
+    if (payload_len >= 3 && payload[2] != 0x00 && payload[2] != 0x08) {
         undocumented = true;
     }
     if (undocumented) {
@@ -1654,10 +1654,15 @@ static bool handle_firmware_version(
 }
 
 /**
- * Handler: Touchscreen other status info message
+ * Handler: Touchscreen device status (CMD 0x12)
  * Pattern: "02 00 50 FF FF 80 00 12 0E F0"
+ *
+ * The Touchscreen's own entry in the CMD 0x12 device-status family, sent
+ * alongside its CMD 0x0A firmware version. Byte 10 has bit 0 always set and a
+ * value of 0-2 in bits 2-3 (0x01/0x05/0x09 observed); what that field means
+ * is unknown. Byte 11 is always 0x00. Log-only.
  */
-static bool handle_touchscreen_unknown1(
+static bool handle_touchscreen_status(
     const uint8_t *data, int len,
     const uint8_t *payload, int payload_len,
     const char *addr_info,
@@ -1668,13 +1673,13 @@ static bool handle_touchscreen_unknown1(
     uint8_t data_byte1 = payload[0];
     uint8_t data_byte2 = payload[1];
 
-    if ((data_byte1 != 0x01 && data_byte1 != 0x05) || data_byte2 != 0x00) {
-        ESP_LOGW(TAG, "%s Touchscreen other status - UNEXPECTED VALUE: Byte1: 0x%02X (%d), Byte2: 0x%02X (%d) (expected 0x01|0x05 0x00)",
+    if ((data_byte1 != 0x01 && data_byte1 != 0x05 && data_byte1 != 0x09) || data_byte2 != 0x00) {
+        ESP_LOGW(TAG, "%s Touchscreen status - UNEXPECTED VALUE: Byte1: 0x%02X (%d), Byte2: 0x%02X (%d) (expected 0x01|0x05|0x09 0x00)",
                  addr_info, data_byte1, data_byte1, data_byte2, data_byte2);
         record_undocumented(data, len);
     } else {
-        ESP_LOGI(TAG, "%s Touchscreen other status - Byte1: 0x%02X (%d), Byte2: 0x%02X (%d)",
-                 addr_info, data_byte1, data_byte1, data_byte2, data_byte2);
+        ESP_LOGI(TAG, "%s Touchscreen status - 0x%02X (bits 3-2 = %d)",
+                 addr_info, data_byte1, (data_byte1 >> 2) & 0x03);
     }
 
     return true;
@@ -4224,8 +4229,8 @@ static bool dispatch_message(
         return handle_controller_time(data, len, payload, payload_len, addr_info, ctx);
     }
 
-    if (match_pattern(data, len, MSG_TYPE_TOUCHSCREEN_UNKNOWN1)) {
-        return handle_touchscreen_unknown1(data, len, payload, payload_len, addr_info, ctx);
+    if (match_pattern(data, len, MSG_TYPE_TOUCHSCREEN_STATUS)) {
+        return handle_touchscreen_status(data, len, payload, payload_len, addr_info, ctx);
     }
 
     if (match_pattern(data, len, MSG_TYPE_PRE_VALVE_FRAME)) {
