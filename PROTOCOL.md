@@ -229,7 +229,7 @@ Click any CMD in the first column to jump to the full section in [Commands](#com
 | [`0x0D`](#0x0d--active-channels-bitmask-)                      | Active Channels Bitmask             | `0x0050` → `0x006F` Internal Channels                                  | Unicast                                                                                     | Yes                     |
 | [`0x0F`](#0x0f--set-channel-state-)                | Set Channel State          | `0x0081`, `0x0084`, `0x0062`, `0xAC1D` → `0x0050`                                                  | `{channel, state}` — sets a **pump-driven** channel to a named state directly (Off/Auto/On/Low/Med/High). The Connect 8/10 sends it for its Cleaning button | Yes                     |
 | [`0x10`](#0x10--channel-toggle-command-)                      | Channel Toggle Command              | `0x00F0`, `0x0062` → Broadcast                                         | Same 1-byte channel-index payload from either source; dispatched on CMD byte alone         | Yes (unified handler)   |
-| [`0x12`](#0x12--device-status-️)                               | Device Status                       | `0x0050`, `0x0062`, `0x0070`, `0x0074`, `0x0081`, `0x0084`, `0x0090`, `0x00F0` → Broadcast | Payload layout differs per source                                                           | Yes (per-source)        |
+| [`0x12`](#0x12--device-status-️)                               | Device Status                       | `0x0050`, `0x0062`, `0x0070`, `0x0074`, `0x0081`, `0x0084`, `0x0090`, `0x00F0` → Broadcast | Payload layout differs per source; dispatched on CMD byte, routed by source address         | Yes (per-source)        |
 | [`0x14`](#0x14--mode-spapool-)                                 | Mode (Spa/Pool)                     | `0x0050` → Broadcast                                                   |                                                                                             | Yes                     |
 | [`0x15`](#0x15--mode-set-command-spapool-)                     | Mode Set Command (Spa/Pool)         | `0x0050`, `0x0062`, `0x0074` → Broadcast                               | Two forms by LEN: `0x0D` sets the mode, same encoding as the `0x14` status (Spa=`0x00`, Pool=`0x01`); `0x0B` (frame with no data, FRAME_TYPE `00 00`, from the Connect 8/10 Pool/Spa button and the ICI Gas Heater) toggles it; dispatched on CMD byte alone | Yes (both forms)        |
 | [`0x16`](#0x16--water-temperature-reading-)                    | Water Temperature Reading           | `0x0062` (LEN `0x0E`), `0x0070`/`0x0072`/`0x0074` (LEN `0x0D`) → Broadcast | Payload length differs by source: LEN `0x0E` = `{temp1, temp2}`, LEN `0x0D` = `{temp1}`; dispatched on CMD byte alone | Yes (unified handler)   |
@@ -670,7 +670,7 @@ Index `N` is channel `N+1` (`0x00`–`0x07` = Channels 1–8). Channel functions
 
 ### 0x12 — Device Status ⚠️
 
-Status broadcast emitted by multiple devices. The CMD byte is shared but the **payload layout differs per source** — there is no unified handler; each variant is dispatched by its own `MSG_TYPE_*` pattern and documented separately below.
+Status broadcast emitted by multiple devices, each sending its own alongside its [0x0A](#0x0a--firmware-version-) firmware version. The CMD byte is shared but the **payload layout differs per source**, so `0x12` is dispatched on the CMD byte and then routed by source address (`handle_device_status`) to a per-source handler. Each variant is documented separately below. A source not listed here is logged as unhandled.
 
 **Source variants:**
 
@@ -842,6 +842,8 @@ Diagnostic Bits
 It is unclear whether the diagnostic bits can be set at the same time as the functional status bits.
 
 Payload[1] is the only byte that varies; bytes 10, 12, and 13 are always `0x00`. The data checksum (byte 14) equals payload[1] since all other payload bytes are zero.
+
+`handle_gas_heater_status` records an "undocumented" entry on the Unknown Messages page for a status value outside the table above, or a non-zero byte 10, 12 or 13.
 
 ---
 

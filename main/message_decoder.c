@@ -84,6 +84,10 @@ static bool match_pattern(const uint8_t *data, int data_len, const char *pattern
 // Message type patterns (as hex strings for readability)
 // ======================================================
 
+// Device status (CMD 0x12) is dispatched on the CMD byte in dispatch_message()
+// and routed by source address in handle_device_status() — the payload
+// layout differs per device. See PROTOCOL.md command `0x12`.
+
 // Register data (CMD 0x38) is dispatched source-agnostically in
 // dispatch_message() — see PROTOCOL.md command `0x38`. Routing is by
 // (reg_id, slot) via REGISTER_HANDLERS, independent of the source device.
@@ -97,7 +101,6 @@ static const char *MSG_TYPE_CHANNELS =              "02 00 50 00 6F 80 00 0D 0D 
 static const char *MSG_TYPE_CHANNEL_STATUS =        "02 00 50 FF FF 80 00 0B 25 00";
 static const char *MSG_TYPE_LIGHT_CONFIG =          "02 00 50 FF FF 80 00 06 0E E4";
 static const char *MSG_TYPE_CONTROLLER_TIME =       "02 00 50 FF FF 80 00 FD 0F DC";
-static const char *MSG_TYPE_TOUCHSCREEN_STATUS =    "02 00 50 FF FF 80 00 12 0E F0";
 static const char *MSG_TYPE_TOUCHSCREEN_UNKNOWN3 =  "02 00 50 FF FF 80 00 05 0D E2";
 
 // Motorised valve actuators (Touchscreen 0x0050 -> Internal Control 0x007F),
@@ -113,30 +116,22 @@ static const char *MSG_TYPE_VALVE_ACTUATOR_CMD =    "02 00 50 00 7F 80 00 41 0E 
 // and the ICI Gas Heater (0x0074, LEN 0x0D, 1-byte payload temp1 only).
 
 // 62 Connect 8/10 Controller
-static const char *MSG_TYPE_HEATER =                "02 00 62 FF FF 80 00 12 0F 03";
 static const char *MSG_TYPE_CONTROLLER_UNKNOWN2B =  "02 00 62 00 50 80 00 2B 0E 6D";
 
 // 70 Genus Heater (Active i25 Evo)
-static const char *MSG_TYPE_GENUS_HEATER_STATUS =       "02 00 70 FF FF 80 00 12 10 12";
 static const char *MSG_TYPE_GENUS_HEATER_TEMP_SETTING = "02 00 70 FF FF 80 00 17 0E 15";
 
 // 72 AstralPool HiNRG Gas Heater
 // CMD 0x16 (temperature reading) is handled by the source-agnostic handler above.
-static const char *MSG_TYPE_HINRG_HEATER_STATUS =       "02 00 72 FF FF 80 00 12 10 14";
 static const char *MSG_TYPE_HINRG_HEATER_TEMP_SETTING = "02 00 72 FF FF 80 00 17 0E 17";
 
 // 74 AstralPool ICI Gas Heater (Astral/Fluidra ICI 400B NG)
 // CMD 0x16 (temperature reading) is handled by the source-agnostic handler above.
-static const char *MSG_TYPE_ICI_HEATER_STATUS =       "02 00 74 FF FF 80 00 12 10 16";
 static const char *MSG_TYPE_ICI_HEATER_TEMP_SETTING = "02 00 74 FF FF 80 00 17 0E 19";
 
 // Chlorinator setpoints (CMD 0x1D) and readings (CMD 0x1F) are dispatched
 // source-agnostically in dispatch_message() — see PROTOCOL.md commands `0x1D`
 // and `0x1F`. Same payload shape from both 0x0090 RolaChem and 0x0084 Viron.
-
-// Chlorinator status broadcast (CMD 0x12) — same payload shape from either variant
-static const char *MSG_TYPE_CHLOR_STATUS_A = "02 00 90 FF FF 80 00 12 0D 2F";
-static const char *MSG_TYPE_CHLOR_STATUS_B = "02 00 84 FF FF 80 00 12 0D 23";
 
 // Set channel state (CMD 0x0F) is dispatched source-agnostically in
 // dispatch_message() — see PROTOCOL.md command `0x0F`. The Touchscreen does
@@ -145,14 +140,10 @@ static const char *MSG_TYPE_CHLOR_STATUS_B = "02 00 84 FF FF 80 00 12 0D 23";
 // sends it for its Cleaning button, and this firmware originates it
 // unconditionally as its own 0xAC1D.
 
-// VX 11S v3 Chlorinator CMD 0x12 status broadcast (meaning unknown; payload always 0x00 in captures)
-static const char *MSG_TYPE_VX11S_STATUS = "02 00 81 FF FF 80 00 12 0D 20";
-
 // F0 Internet Gateway
 static const char *MSG_TYPE_SERIAL_NUMBER =           "02 00 F0 FF FF 80 00 37 11 B8";
 static const char *MSG_TYPE_GATEWAY_IP =              "02 00 F0 FF FF 80 00 37 15 BC";
 static const char *MSG_TYPE_GATEWAY_COMMS =           "02 00 F0 FF FF 80 00 37 0F B6";
-static const char *MSG_TYPE_GATEWAY_STATUS =          "02 00 F0 FF FF 80 00 12 0F 91";
 
 // Register read request (CMD 0x39) is dispatched source-agnostically in
 // dispatch_message() — see PROTOCOL.md command `0x39`. Observed from the
@@ -261,7 +252,7 @@ static const cmd_name_entry_t CMD_NAME_TABLE[] = {
     {0x0D, "Active Channels Bitmask"},
     {0x0F, "Set Channel State"},
     {0x10, "Channel Toggle Cmd"},
-    {0x12, "Status/Other"},
+    {0x12, "Device Status"},
     {0x14, "Mode"},
     {0x15, "Mode Set Cmd"},
     {0x16, "Temperature Reading"},
@@ -1047,9 +1038,8 @@ static bool handle_channel_count(
 }
 
 /**
- * Handler: Gas heater device status (CMD 0x12)
- * Patterns: HiNRG (0x0072) "02 00 72 FF FF 80 00 12 10 14"
- *           ICI   (0x0074) "02 00 74 FF FF 80 00 12 10 16"
+ * Handler: Gas heater device status (CMD 0x12, source 0x0072 HiNRG or
+ * 0x0074 ICI)
  *
  * Same four-byte payload shape from either gas heater; addr_info already names
  * the source device. All bytes are 0x00 when the heater is idle (modulation=0).
@@ -1099,6 +1089,11 @@ static bool handle_gas_heater_status(
             ESP_LOGW(TAG, "%s Undocumented gas heater status: 0x%02X", addr_info, functional_status);
             record_undocumented(data, len);
             return true;
+    }
+
+    // Bytes 10, 12 and 13 are always 0x00 in observed captures.
+    if (payload[0] != 0x00 || payload[2] != 0x00 || payload[3] != 0x00) {
+        record_undocumented(data, len);
     }
 
     const bool heater_on = (raw_status & GAS_HEATER_BITMASK_HEATER_ON) != 0;
@@ -1161,8 +1156,8 @@ static bool handle_gas_heater_status(
 }
 
 /**
- * Handler: Genus Heater (Active i25 Evo heat pump) device status (CMD 0x12)
- * Pattern: "02 00 70 FF FF 80 00 12 10 12"
+ * Handler: Genus Heater (Active i25 Evo heat pump) device status (CMD 0x12,
+ * source 0x0070)
  *
  * Same four-byte payload shape as the gas heaters ({00, status, 00, 00}; the
  * data checksum equals the status byte) and the same bit 0 (heater on) /
@@ -1306,8 +1301,7 @@ static bool handle_heater_temp_setting(
 }
 
 /**
- * Handler: Heater status message
- * Pattern: "02 00 62 FF FF 80 00 12 0F"
+ * Handler: Connect 8/10 Controller device status (CMD 0x12, source 0x0062)
  *
  * The controller's own view of Heater 1. On installs carrying a dedicated
  * heater device (Genus 0x0070, HiNRG 0x0072, ICI 0x0074) that device's CMD 0x12
@@ -1654,8 +1648,7 @@ static bool handle_firmware_version(
 }
 
 /**
- * Handler: Touchscreen device status (CMD 0x12)
- * Pattern: "02 00 50 FF FF 80 00 12 0E F0"
+ * Handler: Touchscreen device status (CMD 0x12, source 0x0050)
  *
  * The Touchscreen's own entry in the CMD 0x12 device-status family, sent
  * alongside its CMD 0x0A firmware version. Byte 10 has bit 0 always set and a
@@ -1929,8 +1922,7 @@ static bool handle_gateway_comms(
 }
 
 /**
- * Handler: Internet Gateway status broadcast
- * Pattern: "02 00 F0 FF FF 80 00 12 0F 91"
+ * Handler: Internet Gateway status broadcast (CMD 0x12, source 0x00F0)
  *
  * Payload (3 bytes): { major, minor, embedded_checksum }
  * where embedded_checksum == major + minor. The frame checksum at byte 13
@@ -2440,9 +2432,8 @@ static bool handle_chlor_orp_reading(
 }
 
 /**
- * Handler: Chlorinator status broadcast (PROTOCOL.md §32)
- * Patterns: "02 00 90 FF FF 80 00 12 0D 2F" (variant A)
- *           "02 00 84 FF FF 80 00 12 0D 23" (variant B)
+ * Handler: Chlorinator status broadcast (CMD 0x12, source 0x0090 RolaChem or
+ * 0x0084 Viron)
  *
  * 1-byte payload: configured operating mode. Mapping is tentative — see §32.
  */
@@ -2480,8 +2471,7 @@ static bool handle_chlor_status(
 }
 
 /**
- * Handler: VX 11S v3 Chlorinator status broadcast
- * Pattern: "02 00 81 FF FF 80 00 12 0D 20"
+ * Handler: VX 11S v3 Chlorinator status broadcast (CMD 0x12, source 0x0081)
  *
  * 1-byte payload: Always 0x00 observed. Mapping unknown.
  */
@@ -3937,6 +3927,43 @@ bool decode_message(const uint8_t *data, int len, message_decoder_context_t *ctx
     return decoded;
 }
 
+/**
+ * Router: Device status (CMD 0x12)
+ *
+ * Every device sends its own CMD 0x12 alongside its CMD 0x0A firmware
+ * version, but the payload layout differs per source, so the handler is
+ * chosen by source address. Unknown sources fall through to handle_unknown.
+ */
+static bool handle_device_status(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    uint16_t src = ((uint16_t)data[1] << 8) | data[2];
+
+    switch (src) {
+        case 0x0050:  // Touchscreen
+            return handle_touchscreen_status(data, len, payload, payload_len, addr_info, ctx);
+        case 0x0062:  // Connect 8/10 Controller
+            return handle_heater(data, len, payload, payload_len, addr_info, ctx);
+        case 0x0070:  // Genus Heater
+            return handle_genus_heater_status(data, len, payload, payload_len, addr_info, ctx);
+        case 0x0072:  // HiNRG Gas Heater
+        case 0x0074:  // ICI Gas Heater
+            return handle_gas_heater_status(data, len, payload, payload_len, addr_info, ctx);
+        case 0x0081:  // VX 11S v3 Salt Chlorinator
+            return handle_vx11s_status(data, len, payload, payload_len, addr_info, ctx);
+        case 0x0084:  // Viron Chlorinator
+        case 0x0090:  // RolaChem
+            return handle_chlor_status(data, len, payload, payload_len, addr_info, ctx);
+        case 0x00F0:  // Internet Gateway
+            return handle_gateway_status(data, len, payload, payload_len, addr_info, ctx);
+        default:
+            return handle_unknown(data, len, payload, payload_len, addr_info, ctx);
+    }
+}
+
 static bool dispatch_message(
     const uint8_t *data, int len,
     const uint8_t *payload, int payload_len,
@@ -3951,6 +3978,13 @@ static bool dispatch_message(
     // command `0x0A` section and the Known Command Bytes "Firmware version" row.
     if (cmd == 0x0A) {
         return handle_firmware_version(data, len, payload, payload_len, addr_info, ctx);
+    }
+
+    // Device status (CMD 0x12) — sent by each device alongside its 0x0A;
+    // payload layout differs per source, so routed by source address. See
+    // PROTOCOL.md command `0x12`.
+    if (cmd == 0x12) {
+        return handle_device_status(data, len, payload, payload_len, addr_info, ctx);
     }
 
     // Channel toggle command (CMD 0x10) — source-agnostic. Sent by the
@@ -4170,10 +4204,6 @@ static bool dispatch_message(
         return handle_temp_setting(data, len, payload, payload_len, addr_info, ctx);
     }
 
-    if (match_pattern(data, len, MSG_TYPE_HEATER)) {
-        return handle_heater(data, len, payload, payload_len, addr_info, ctx);
-    }
-
     if (match_pattern(data, len, MSG_TYPE_CONTROLLER_UNKNOWN2B)) {
         return handle_controller_heartbeat(data, len, payload, payload_len, addr_info, ctx);
     }
@@ -4183,28 +4213,6 @@ static bool dispatch_message(
         match_pattern(data, len, MSG_TYPE_HINRG_HEATER_TEMP_SETTING) || 
         match_pattern(data, len, MSG_TYPE_ICI_HEATER_TEMP_SETTING)) {
         return handle_heater_temp_setting(data, len, payload, payload_len, addr_info, ctx);
-    }
-
-    // Gas heater device status (CMD 0x12) — HiNRG (0x0072) and ICI (0x0074)
-    if (match_pattern(data, len, MSG_TYPE_HINRG_HEATER_STATUS) ||
-        match_pattern(data, len, MSG_TYPE_ICI_HEATER_STATUS)) {
-        return handle_gas_heater_status(data, len, payload, payload_len, addr_info, ctx);
-    }
-
-    // Genus heat pump device status (CMD 0x12) — 0x0070
-    if (match_pattern(data, len, MSG_TYPE_GENUS_HEATER_STATUS)) {
-        return handle_genus_heater_status(data, len, payload, payload_len, addr_info, ctx);
-    }
-
-    // Chlorinator status broadcast (§32) — both 0x0090 and 0x0084 variants
-    if (match_pattern(data, len, MSG_TYPE_CHLOR_STATUS_A) ||
-        match_pattern(data, len, MSG_TYPE_CHLOR_STATUS_B)) {
-        return handle_chlor_status(data, len, payload, payload_len, addr_info, ctx);
-    }
-
-    // VX 11S v3 CMD 0x12 status broadcast (payload meaning unknown)
-    if (match_pattern(data, len, MSG_TYPE_VX11S_STATUS)) {
-        return handle_vx11s_status(data, len, payload, payload_len, addr_info, ctx);
     }
 
     // Gateway messages
@@ -4220,17 +4228,9 @@ static bool dispatch_message(
         return handle_gateway_comms(data, len, payload, payload_len, addr_info, ctx);
     }
 
-    if (match_pattern(data, len, MSG_TYPE_GATEWAY_STATUS)) {
-        return handle_gateway_status(data, len, payload, payload_len, addr_info, ctx);
-    }
-
     // Controller info messages
     if (match_pattern(data, len, MSG_TYPE_CONTROLLER_TIME)) {
         return handle_controller_time(data, len, payload, payload_len, addr_info, ctx);
-    }
-
-    if (match_pattern(data, len, MSG_TYPE_TOUCHSCREEN_STATUS)) {
-        return handle_touchscreen_status(data, len, payload, payload_len, addr_info, ctx);
     }
 
     if (match_pattern(data, len, MSG_TYPE_PRE_VALVE_FRAME)) {
