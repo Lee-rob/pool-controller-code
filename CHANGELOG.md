@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+### Changed
+### Fixed
+### Removed
+### Deprecated
+### Security
+
+## [1.17.0] - 2026-10-11
+### Added
 - Decoded the Touchscreen's Internet Gateway WiFi credential writes (CMD `0x3A`, registers `0xD0`/`0xD1`, slot `0x07`), which are sent when the Gateway's network is changed. The log shows the new SSID and a masked password (length only); previously these were logged as an unknown register write
 - Decoded the Connect 8/10's front-panel buttons. The Valve button (CMD `0x29`, which carries the valve index) and the payload-less Pool/Spa toggle (CMD `0x15`, also sent by the ICI Gas Heater) are now logged instead of reported as unhandled. PROTOCOL.md now documents what the Cleaning, Service, Timeout and Auto buttons send
 ### Changed
@@ -27,8 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Heater setpoints now reach Home Assistant on installs where nothing volunteers them. The register requester never asked for the setpoint registers (`0xE7`/`0xE8` for Heater 1, `0xEA`/`0xEB` for Heater 2), so on a system with no Internet Gateway to poll them and a Touchscreen that does not broadcast CMD `0x17`, they stayed absent until the user happened to change one from Home Assistant — the read-back after a write was the only code that ever requested them. They are now part of the missing-data sweep, per circuit, and are dropped after five unanswered attempts so an unconfigured heater slot does not poll the bus forever. That sweep asks once and nothing re-reads the registers afterwards, so a setpoint later changed at the Touchscreen or on the heater's own panel would still not have arrived: the heater's own CMD `0x17` setpoint broadcast (~every 60 s) is now applied instead of only logged. It is attributed to Heater 1 only while nothing has reported a Heater 2, since the frame does not name a heater slot and a heater device is not always Heater 1 — on a two-heater install it stays log-only and the register broadcasts remain authoritative. A circuit reporting the `0x0A` (10°C) "not plumbed" default is skipped rather than written
 ### Removed
 - update_state_only and update_state_and_publish had no callers, which triggered -Wunused-function. Drop them along with the state_update_fn typedef.
-### Deprecated
-### Security
 
 ## [1.16.0] - 2026-09-28
 ### Added
