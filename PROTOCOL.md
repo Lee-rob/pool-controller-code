@@ -1500,7 +1500,7 @@ The payload is a slot count followed by one 3-byte entry (configured flag, state
 | `0x00`     | `0x0D` | `02 00 50 FF FF 80 00 27 0D 04` | No valve zone configured               |
 | `0x02`     | `0x13` | `02 00 50 FF FF 80 00 27 13 0A` | At least one valve zone configured     |
 
-The count does not track the number of *configured* valves. Configuring a single valve takes it straight from `0x00` to `0x02`, with the unused slot sent as `00 00 00`; configuring the second valve later only fills that slot in. Confirmed live on two installs (round 8 and zagnuts), each captured while its first valve zone was configured.
+The count does not track the number of *configured* valves. Configuring a single valve takes it straight from `0x00` to `0x02`, with the unused slot sent as `00 00 00`; configuring the second valve later only fills that slot in. Confirmed live on two installs (round 8 and zagnuts), each captured while its first valve zone was configured. Each valve's configured flag can also be read as a register: [Valve Configured](#appendix-a-register-dispatch-table) (`0x26`–`0x2D`, slot `0x02`).
 
 **When it is sent:**
 
@@ -1581,7 +1581,7 @@ The count does not track the number of *configured* valves. Configuring a single
 - These are the user-configurable **valve zones**. The combo valve actuators that swing on a mode change are a separate subsystem driven by [0x41](#0x41--valve-actuator-command-️) and are not reported here — an install can be actuating them while `0x27` reports zero slots
 - Valves not yet configured appear as `00 00 00` in their slot
 - Whether a valve supports Auto mode depends on its configuration; in the observed capture valve 1 was configured without Auto, valve 2 was configured with Auto
-- Valve labels are stored via the register system (`0xD0`–`0xD1`, Slot `0x02`); see [Appendix A](#appendix-a-register-dispatch-table)
+- Valve labels are stored via the register system (`0xD0`–`0xD7`, Slot `0x02`; only `0xD0`/`0xD1` ever hold a label); see [Appendix A](#appendix-a-register-dispatch-table)
 - State transitions correlate exactly with [0x25 Valve Sync](#0x25--valve-sync-)
 - In every capture so far, Active is set exactly when State is On. Auto has only been seen with Active clear, so whether Active tracks a running Auto schedule is untested ⚠️
 - Not yet captured: configuring only Valve 2 (expected `02 00 00 00 01 …`), or removing every zone (expected to fall back to zero slots and stop `0x25`) ⚠️
@@ -2087,13 +2087,13 @@ Assigns human-readable names to channels, lighting zones, and valves as null-ter
 
 **Data Fields:**
 
-- Byte 10: Register ID (e.g. `0x7C`–`0x83` for channels 1–8; `0xD0`–`0xD3` for zones/valves 1–4)
+- Byte 10: Register ID (e.g. `0x7C`–`0x83` for channels 1–8; `0xD0`–`0xD7` for valves 1–8)
 - Byte 11: Slot ID
 - Byte 12+: Null-terminated ASCII string
 
 **Notes:**
 
-- Registers `0xD0`–`0xD3` appear to be multipurpose — can represent either lighting zone colors or valve names depending on system configuration
+- Registers `0xD0`–`0xD7` are reused across slots: slot `0x01` is Light Zone Color, slot `0x02` is Valve Label
 - Maximum string length appears to be limited by message size constraints
 
 ---
@@ -2502,6 +2502,7 @@ The register ID and slot together determine the message meaning. The slot distin
 | `0x08`–`0x17`  | `0x04` | Timers 1–16            | start/stop time + days bitmask — read-only; writes ignored by controller (see [0x38 Timer Registers](#timer-registers-slot-0x04))   |
 | `0x20`         | `0x03` | Active Favourite       | CMD `0x2A` value of the active favourite (`0x00`=Pool … `0x07`=Favourite 6); `0xFF` = none active — see note below |
 | `0x21`–`0x28`  | `0x03` | Favourite Enable       | 1-byte flag (`0x01`=enabled, `0x00`=disabled). Maps to CMD `0x2A` values `0x00`–`0x07` in order. Pool (`0x21`) and Spa (`0x22`) are always `0x01`. |
+| `0x26`–`0x2D`  | `0x02` | Valve Configured       | 1-byte flag (`0x01`=valve zone configured, `0x00`=not configured). `0x26`=Valve 1 … `0x2D`=Valve 8 — see note below |
 | `0x30`         | `0x01` | Current Water Temperature | 2-byte `{temp °C, 0x00}` mirror of the controller's [0x16](#0x16--water-temperature-reading-) reading — see note below |
 | `0x30` ⚠️      | `0x03` | Unknown                | 1-byte, only `0x00` observed. Polled by the Internet Gateway. Sits immediately before the Favourite Labels block, as `0x20` does the Enable block. |
 | `0x31`–`0x38`  | `0x03` | Favourite Labels       | Null-terminated ASCII string. Maps to CMD `0x2A` values `0x00`–`0x07` in order. `0x31`=Pool, `0x32`=Spa, `0x33`–`0x38`=user Favourites 1–6. |
@@ -2520,7 +2521,7 @@ The register ID and slot together determine the message meaning. The slot distin
 | `0xC0`–`0xC7`  | `0x01` | Light Zone State       | 1-byte value (0=Off, 1=Auto, 2=On)               |
 | `0xC0`–`0xC3` ⚠️| `0x0D` | Unknown               | Only `0xFF` observed. Repeats ~every 8 minutes   |
 | `0xC8` ⚠️      | `0x00` | Unknown                | Only `0x01` observed. Repeats ~every 8 minutes   |
-| `0xD0`–`0xD1`  | `0x02` | Valve Labels           | Null-terminated ASCII string                     |
+| `0xD0`–`0xD7`  | `0x02` | Valve Labels           | Null-terminated ASCII string. `0xD0`=Valve 1 … `0xD7`=Valve 8 — see note below |
 | `0xD0`–`0xD1`  | `0x07` | Internet Gateway WiFi SSID / password | Unterminated ASCII string, written by the Touchscreen to the Gateway via CMD `0x3A` — see [Internet Gateway WiFi Credentials](#internet-gateway-wifi-credentials-register-0xd00xd1-slot-0x07-) |
 | `0xD0`–`0xD7`  | `0x01` | Light Zone Color       | 1-byte color code — writable via CMD `0x3A`; one shared code space across light models, each model exposing a subset selected by register `0xF0` — full table in [Light Zone Color Control](#light-zone-color-control-register-0xd00xd7-slot-0x01-️) |
 | `0xE0`–`0xE7`  | `0x01` | Light Zone Active      | 1-byte binary (`0x00`=Inactive, `0x01`=Active)   |
@@ -2549,6 +2550,8 @@ The register ID and slot together determine the message meaning. The slot distin
 - **`0x20` (Active Favourite) — confirmed ✅**: slot `0x03` is the Favourite slot, and `0x20` sits immediately before the Favourite Enable block (`0x21`–`0x28`). Reports which favourite is currently active, using the same value space as CMD [`0x2A`](#0x2a--favourite-control-command-): `0x00`=Pool, `0x01`=Spa, `0x02`–`0x07`=user Favourites 1–6; `0xFF` = no favourite active. The All Off/All Auto command values (`0x80`/`0x81`) never appear here — the controller does not remember them as states: All Off reports as `0x00` (it is implemented as Pool mode with all channels off; the accompanying [0x14 Mode](#0x14--mode-spapool-) broadcast also says Pool) and All Auto reports as `0xFF`. Broadcast ~1 s after a gateway-commanded activation ([0x2A](#0x2a--favourite-control-command-)), when an active favourite is knocked out by a manual channel change, and in the periodic ~8-minute register dump — but **not** when a favourite is activated at the touchscreen itself (the new value then only appears in the next dump).
 - **`0xF0` (Multicolor Light Type) — confirmed ✅**: system-wide multicolor light model selection from the touchscreen's light setup. Confirmed by UI experiment: setting the light type to SLX multicolor rebroadcasts `0x00`, Delta rebroadcasts `0x01`, and with no multicolor light configured the register reads `0xFF` (none selected — same sentinel convention as Active Favourite `0x20`). A single global register, not per-zone (no `0xF1`–`0xF3` siblings exist, and the Gateway's periodic polling requests `0xF0` only), sitting at the front of the slot-`0x01` system-config block (`0xF4` channel count, `0xF5`–`0xFC` channel categories). Only the SLX and Delta indexes have been mapped; other models in the setup list presumably take further values. The selected model determines which subset of the shared color code table applies to the Light Zone Color registers and [CMD 0x07](#0x07--lighting-zone-color-broadcast-️) — full table in [Light Zone Color Control](#light-zone-color-control-register-0xd00xd7-slot-0x01-️).
 - **Light zone families — 8 zones confirmed ✅**: the six slot-`0x01` per-zone blocks (`0x90` enabled, `0xA0` multicolor, `0xB0` name, `0xC0` state, `0xD0` color, `0xE0` active) each span 8 zones. An install with more than four light zones exercises the upper half: its Touchscreen reports `0xC4`–`0xC7` (state, all `0x00`) and `0xD4`–`0xD7` (color, all `0x05`) for zones 5–8, and its Internet Gateway polls the upper-half siblings `0x96`, `0xA5` and `0xB5`–`0xB7` via [0x39](#0x39--register-read-request-) in the same cycle as the lower four. Responses to those enabled/multicolor/name polls have not themselves been captured yet, so only the state and color blocks are directly confirmed across zones 5–8.
+- **`0x26`–`0x2D` (Valve Configured) — confirmed ✅**: per-valve-zone counterpart of Light Zone Enabled (`0x90`–`0x97`), matching the configured flag of each slot in the [0x27 Valve State Broadcast](#0x27--valve-state-broadcast-). Every install with no valve zones reads `0x00` for all eight. On an install with only Valve 1 configured, `0x26` reads `0x01` and `0x27` reads `0x00`; with both configured, `0x26` and `0x27` both read `0x01`. In the capture where the second valve was configured, both were rebroadcast as `0x01` about 60 s later, in the same burst as the Valve Labels (`0xD0`–`0xD7`, slot `0x02`). The block is 8 registers wide, and the Internet Gateway polls all eight, but CMD `0x27` only ever carries two slots, so `0x28`–`0x2D` (Valves 3–8) have only been seen as `0x00`. `0x26`–`0x28` overlap the slot-`0x03` Favourite Enable range and are told apart by slot as usual.
+- **`0xD0`–`0xD7` / slot `0x02` (Valve Labels)**: an 8-register block, the same width as Valve Configured (`0x26`–`0x2D`). The Internet Gateway polls exactly `0xD0`–`0xD7` (never `0xCF` or `0xD8`) and the Touchscreen answers all eight on every install. `0xD0`/`0xD1` always hold a label, even with no valve zones configured: the defaults `Valve 1`/`Valve 2`, or the user's names. `0xD2`–`0xD7` have only ever returned a single `0x00` byte, read as an empty string for Valves 3–8. No capture has a non-empty one, and CMD `0x27` only ever carries two slots.
 - **`0x90`–`0x97` (Light Zone Enabled)**: 1-byte flag reporting whether the light zone is configured in the controller: `0x01` = configured/present, `0x00` = not configured. Sits in the same slot-`0x01` per-zone register family as the other light-zone blocks (`0xA0` multicolor, `0xB0` name, `0xC0` state, `0xD0` color, `0xE0` active). Enabled zones are rebroadcast regularly; disabled zones are only broadcast at startup or after a configuration change. `0x90`–`0x93` overlaps the slot-`0x02` Channel State range — distinguished by slot as usual.
 - **`0xF5`–`0xFC` (Channel Category) — confirmed ✅**: per-channel category code following the Channel Count register (`0xF4`): `0xF5` = Channel 1, `0xF6` = Channel 2, … `0xFC` = Channel 8. Values: `0x01` = Pool equipment, `0x02` = Light, `0x03` = Controlled Heater Power. Registers for unused channels are not broadcast (only `0xF5`–`0xFB` observed on a 7-channel system, so `0xFC` = Channel 8 is inferred from the range width of the other per-channel register blocks). This is a coarser classification than the per-channel [Channel Type](#0x0b--channel-status-) codes at `0x6C`–`0x73`.
 
@@ -2668,13 +2671,17 @@ Configured zones are rebroadcast regularly; unconfigured zones are only broadcas
                                     ^^ Color code: 0x05 = Blue
 ```
 
-**Valve Label (`0xD0`–`0xD1`, Slot `0x02`):**
+**Valve Label (`0xD0`–`0xD7`, Slot `0x02`):**
 
 ```
 02 00 50 FF FF 80 00 38 16 1E D0 02 56 61 6C 76 65 20 31 00 21 03
                               ^^ Valve 1 (0xD0) - same register as Light Zone 1!
                                  ^^ Slot 0x02 (Label)
                                     V  a  l  v  e     1  \0
+
+02 00 50 FF FF 80 00 38 0F 17 D2 02 00 D4 03
+                              ^^ Valve 3 (0xD2)
+                                    ^^ Empty string (all of 0xD2–0xD7 read this way)
 ```
 
 **Note:** Register `0xD0` serves dual purpose:
@@ -2734,7 +2741,7 @@ static const register_handler_t REGISTER_HANDLERS[] = {
     {0x08, 0x17, 0x04, handle_timer,                 "Timer"},
     {0xD0, 0xD7, 0x01, handle_light_zone_color,      "Light Zone Color"},
     {0xE0, 0xE7, 0x01, handle_light_zone_active,     "Light Zone Active"},
-    {0xD0, 0xD1, 0x02, handle_valve_label,           "Valve Label"},
+    {0xD0, 0xD7, 0x02, handle_valve_label,           "Valve Label"},
     {0x31, 0x38, 0x03, handle_register_label_generic,"Favourite Label"},
 };
 ```

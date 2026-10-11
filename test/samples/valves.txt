@@ -168,6 +168,16 @@ I (02:41:31.899) MSG_DECODER:   V1: Off (Inactive)
 I (02:41:31.899) MSG_DECODER:   V2: Off (Inactive)
 02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 00 00 04 03
 
+# About 60 s later the Touchscreen rebroadcasts the Valve Configured registers
+# (0x26-0x2D, slot 0x02), one per valve, ahead of the valve labels.
+
+I (02:42:34.469) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 26 02 01 29 03
+I (02:42:34.469) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 1 configured - Yes
+02 00 50 FF FF 80 00 38 0F 17 26 02 01 29 03
+I (02:42:34.589) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 27 02 01 2A 03
+I (02:42:34.589) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 2 configured - Yes
+02 00 50 FF FF 80 00 38 0F 17 27 02 01 2A 03
+
 # Valve 2 switched to Auto, then On. Auto with no timer running stays Inactive.
 
 I (02:44:10.919) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 01 00 05 03
@@ -193,3 +203,45 @@ I (345676) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
 I (345676) MSG_DECODER:   V1: On (Active)
 I (345676) MSG_DECODER:   V2: On (Active)
 02 00 50 FF FF 80 00 27 13 0A 02 01 02 01 01 02 01 0A 03
+
+# ----------------------------------------------------------------------------
+# Valve Configured registers on an install with no valve zones (round 12,
+# skymuster01): all eight read 0x00. First and last shown.
+
+I (12:58:14.769) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 26 02 00 28 03
+I (12:58:14.769) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 1 configured - No
+02 00 50 FF FF 80 00 38 0F 17 26 02 00 28 03
+I (12:58:16.869) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 2D 02 00 2F 03
+I (12:58:16.869) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 8 configured - No
+02 00 50 FF FF 80 00 38 0F 17 2D 02 00 2F 03
+
+# Valve Labels (0xD0-0xD7, slot 0x02) on the same install: Valves 1 and 2 keep
+# their default names with no zones configured; 0xD2-0xD7 are always empty.
+
+I (12:59:14.999) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 16 1E D0 02 56 61 6C 76 65 20 31 00 21 03
+I (12:59:14.999) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 1 label (0xD0) - "Valve 1"
+02 00 50 FF FF 80 00 38 16 1E D0 02 56 61 6C 76 65 20 31 00 21 03
+I (12:59:17.589) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 D2 02 00 D4 03
+I (12:59:17.589) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 3 label (0xD2) - ""
+02 00 50 FF FF 80 00 38 0F 17 D2 02 00 D4 03
+
+# ----------------------------------------------------------------------------
+# SYNTHETIC - not captured. Valve zones beyond the two CMD 0x27 slots have
+# never been seen; these frames check that one would be flagged as
+# undocumented rather than passing silently: Valve 3 configured, a Valve 3
+# label, and a three-slot 0x27.
+
+I (00:00:01.000) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 28 02 01 2B 03
+W (00:00:01.000) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 3 configured - beyond the 2 supported valve slots
+I (00:00:01.000) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 3 configured - Yes
+02 00 50 FF FF 80 00 38 0F 17 28 02 01 2B 03
+I (00:00:02.000) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 16 1E D2 02 56 61 6C 76 65 20 33 00 24 03
+I (00:00:02.000) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 3 label (0xD2) - "Valve 3"
+W (00:00:02.000) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 3 label - beyond the 2 supported valve slots
+02 00 50 FF FF 80 00 38 16 1E D2 02 56 61 6C 76 65 20 33 00 24 03
+I (00:00:03.000) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 16 0D 03 01 00 00 01 00 00 01 00 00 06 03
+W (00:00:03.000) MSG_DECODER: [Touch Screen -> Broadcast] Valve state - 3 slots, only the first 2 decoded
+I (00:00:03.000) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (00:00:03.000) MSG_DECODER:   V1: Off (Inactive)
+I (00:00:03.000) MSG_DECODER:   V2: Off (Inactive)
+02 00 50 FF FF 80 00 27 16 0D 03 01 00 00 01 00 00 01 00 00 06 03

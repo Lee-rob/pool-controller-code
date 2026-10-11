@@ -138,6 +138,9 @@ typedef enum {
     REG_ID_FAVOURITE_ENABLE_0      = 0x21,  // Fav enable index 0  (0–7 → 0x21–0x28, slot 0x03)
     REG_ID_FAVOURITE_ENABLE_7      = 0x28,  // Fav enable index 7 (last)
 
+    REG_ID_VALVE_CONFIGURED_0      = 0x26,  // Valve 0 configured flag (0–7 → 0x26–0x2D, slot 0x02; 0x26–0x28 shares range with REG_ID_FAVOURITE_ENABLE_[5-7], slot 0x03)
+    REG_ID_VALVE_CONFIGURED_7      = 0x2D,  // Valve 7 configured (last)
+
     REG_ID_WATER_TEMP              = 0x30,  // Current water temperature °C (slot 0x01) — mirror of the controller's CMD 0x16 reading
 
     REG_ID_FAVOURITE_LABEL_0       = 0x31,  // Fav label index 0   (0–7 → 0x31–0x38, slot 0x03)
@@ -166,11 +169,11 @@ typedef enum {
     REG_ID_LIGHT_ZONE_STATE_0      = 0xC0,  // Zone 0 state (0–7 → 0xC0–0xC7, slot 0x01)
     REG_ID_LIGHT_ZONE_STATE_7      = 0xC7,  // Zone 7 state (last)
 
-    REG_ID_LIGHT_ZONE_COLOR_0      = 0xD0,  // Zone 0 color (0–7 → 0xD0–0xD7, slot 0x01, shares range with REG_ID_VALVE_LABEL_[0|1])
+    REG_ID_LIGHT_ZONE_COLOR_0      = 0xD0,  // Zone 0 color (0–7 → 0xD0–0xD7, slot 0x01, shares range with REG_ID_VALVE_LABEL_[0-7])
     REG_ID_LIGHT_ZONE_COLOR_7      = 0xD7,  // Zone 7 color (last)
 
-    REG_ID_VALVE_LABEL_0           = 0xD0,  // Valve 0 label (0–1 → 0xD0–0xD1, slot 0x02; shares range with REG_ID_LIGHT_ZONE_COLOR_[0|1])
-    REG_ID_VALVE_LABEL_1           = 0xD1,  // Valve 1 label (last)
+    REG_ID_VALVE_LABEL_0           = 0xD0,  // Valve 0 label (0–7 → 0xD0–0xD7, slot 0x02; shares range with REG_ID_LIGHT_ZONE_COLOR_[0-7])
+    REG_ID_VALVE_LABEL_7           = 0xD7,  // Valve 7 label (last)
 
     REG_ID_GATEWAY_WIFI_SSID       = 0xD0,  // Internet Gateway WiFi SSID (slot 0x07, Touchscreen -> Gateway CMD 0x3A write, ASCII string)
     REG_ID_GATEWAY_WIFI_PASSWORD   = 0xD1,  // Internet Gateway WiFi password (slot 0x07, same as above)

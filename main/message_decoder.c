@@ -561,6 +561,7 @@ static bool handle_light_zone_active(const uint8_t *data, int len, const uint8_t
 static bool handle_light_zone_multicolor(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_light_zone_name(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_valve_label(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
+static bool handle_valve_configured(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_favourite_label(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_favourite_enable(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_active_favourite(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
@@ -597,8 +598,11 @@ static const register_handler_t REGISTER_HANDLERS[] = {
     {REG_ID_LIGHT_ZONE_COLOR_0,      REG_ID_LIGHT_ZONE_COLOR_7,      0x01, handle_light_zone_color,      "Light Zone Color"},
     {REG_ID_LIGHT_ZONE_ACTIVE_0,     REG_ID_LIGHT_ZONE_ACTIVE_7,     0x01, handle_light_zone_active,     "Light Zone Active"},
 
-    // Valve labels (slot 0x02)
-    {REG_ID_VALVE_LABEL_0,           REG_ID_VALVE_LABEL_1,           0x02, handle_valve_label,           "Valve Label"},
+    // Valve labels (slot 0x02, registers 0xD0-0xD7 = valves 1-8)
+    {REG_ID_VALVE_LABEL_0,           REG_ID_VALVE_LABEL_7,           0x02, handle_valve_label,           "Valve Label"},
+
+    // Valve configured flags (slot 0x02, registers 0x26-0x2D = valves 1-8)
+    {REG_ID_VALVE_CONFIGURED_0,      REG_ID_VALVE_CONFIGURED_7,      0x02, handle_valve_configured,      "Valve Configured"},
 
     // Active favourite (slot 0x03, register 0x20): CMD 0x2A value, 0xFF = none active
     {REG_ID_ACTIVE_FAVOURITE,        REG_ID_ACTIVE_FAVOURITE,        0x03, handle_active_favourite,      "Active Favourite"},
@@ -1758,7 +1762,13 @@ static bool handle_valve_state(
     if (payload_len < 1) return false;
 
     uint8_t slot_count = payload[0];
-    if (slot_count > MAX_VALVE_SLOTS) slot_count = MAX_VALVE_SLOTS;
+    if (slot_count > MAX_VALVE_SLOTS) {
+        // Only 0 and 2 slots have been seen; more would mean a third valve zone.
+        ESP_LOGW(TAG, "%s Valve state - %d slots, only the first %d decoded",
+                 addr_info, slot_count, MAX_VALVE_SLOTS);
+        record_undocumented(data, len);
+        slot_count = MAX_VALVE_SLOTS;
+    }
 
     if (payload_len < 1 + slot_count * 3) {
         ESP_LOGW(TAG, "%s Valve state - truncated payload (slots=%d, payload_len=%d)",
@@ -3327,7 +3337,10 @@ static bool handle_light_zone_active(
 
 /**
  * Handler: Valve labels
- * Register range: 0xD0-0xD1, Slot: 0x02
+ * Register range: 0xD0-0xD7, Slot: 0x02
+ *
+ * Only Valves 1-2 (the two CMD 0x27 slots) are stored; 0xD2-0xD7 have only
+ * ever been seen empty, so they are logged and a non-empty one is flagged.
  */
 static bool handle_valve_label(
     const uint8_t *data, int len,
@@ -3347,6 +3360,15 @@ static bool handle_valve_label(
     memcpy(label, &payload[2], str_len);
 
     ESP_LOGI(TAG, "%s Valve zone %d label (0x%02X) - \"%s\"", addr_info, zone_num, reg_id, label);
+
+    if (zone_num > MAX_VALVE_SLOTS) {
+        if (label[0] != '\0') {
+            ESP_LOGW(TAG, "%s Valve zone %d label - beyond the %d supported valve slots",
+                     addr_info, zone_num, MAX_VALVE_SLOTS);
+            record_undocumented(data, len);
+        }
+        return true;
+    }
 
     // Update pool state
     pool_state_t state_snapshot;
@@ -3369,19 +3391,51 @@ static bool handle_valve_label(
     }
 
     // Also store directly in valve state for MQTT name-change detection
-    int valve_idx = reg_id - REG_ID_VALVE_LABEL_0;
-    if (valve_idx >= 0 && valve_idx < MAX_VALVE_SLOTS) {
-        strncpy(ctx->pool_state->valves[valve_idx].name, label,
-                sizeof(ctx->pool_state->valves[valve_idx].name) - 1);
-        ctx->pool_state->valves[valve_idx].name[sizeof(ctx->pool_state->valves[valve_idx].name) - 1] = '\0';
-    }
+    int valve_idx = zone_num - 1;
+    strncpy(ctx->pool_state->valves[valve_idx].name, label,
+            sizeof(ctx->pool_state->valves[valve_idx].name) - 1);
+    ctx->pool_state->valves[valve_idx].name[sizeof(ctx->pool_state->valves[valve_idx].name) - 1] = '\0';
 
     state_unlock(ctx, slot >= 0, &state_snapshot);
 
     // Re-publish valve discovery and state now that the name is known
-    if (ctx->enable_mqtt && zone_num >= 1 && zone_num <= MAX_VALVE_SLOTS) {
+    if (ctx->enable_mqtt) {
         mqtt_publish_valve(&state_snapshot, zone_num);
     }
+
+    return true;
+}
+
+/**
+ * Handler: Valve configured flag
+ * Register range: 0x26-0x2D, Slot: 0x02 (0x01 = valve zone configured, 0x00 = not).
+ * Log-only — the configured flag in the CMD 0x27 Valve State Broadcast is what
+ * updates pool_state->valves[].
+ */
+static bool handle_valve_configured(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 3) return false;
+
+    uint8_t reg_id = payload[0];
+    uint8_t configured = payload[2];
+    uint8_t zone_num = reg_id - REG_ID_VALVE_CONFIGURED_0 + 1;
+
+    if (configured >= 0x02) {
+        ESP_LOGW(TAG, "%s Valve configured out of expected range 0x00-0x01: 0x%02X", addr_info, configured);
+        record_undocumented(data, len);
+    } else if (configured && zone_num > MAX_VALVE_SLOTS) {
+        // Valves 3-8 have only ever read 0x00 (CMD 0x27 carries two slots)
+        ESP_LOGW(TAG, "%s Valve zone %d configured - beyond the %d supported valve slots",
+                 addr_info, zone_num, MAX_VALVE_SLOTS);
+        record_undocumented(data, len);
+    }
+
+    ESP_LOGI(TAG, "%s Valve zone %d configured - %s", addr_info,
+             zone_num, configured ? "Yes" : "No");
 
     return true;
 }
