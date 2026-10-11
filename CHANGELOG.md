@@ -15,7 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- Decoded the Touchscreen's Valve Sync (CMD `0x25`), the valve counterpart of the CMD `0x0D` active channels bitmask. It is now logged as the active valves (e.g. `Active valves - 0x01 [-1]`) instead of reported as unhandled
 ### Changed
+- The Valve State Broadcast (CMD `0x27`) is now decoded as a single layout, dispatched on the CMD byte, instead of as two fixed frames. The old short "startup" frame turns out to be the same message with a slot count of zero, which is what the Touchscreen sends while no valve zone is configured; configuring a valve takes the count straight to two. A zero-slot broadcast now clears the valve slot count, so the web UI lists no valves. The log now matches the channel status layout, with one row per slot including unused ones. PROTOCOL.md documents the layout, when the Touchscreen sends `0x27` and `0x25` (they join its status cycle only once a valve zone exists), and how they pair with CMD `0x0B`/`0x0D`
 ### Fixed
 ### Removed
 ### Deprecated

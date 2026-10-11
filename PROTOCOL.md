@@ -240,9 +240,9 @@ Click any CMD in the first column to jump to the full section in [Commands](#com
 | [`0x19`](#0x19--temperature-setpoint-command-)                 | Temperature Setpoint Command        | `0x00F0` Gateway, `0x0050` Touchscreen → Broadcast                     | Sub-dispatched by slot byte (`0x01`/`0x02` Pool/Spa from Gateway, `0x03` heater pair from Touchscreen); dispatched on CMD byte alone | Yes (unified handler)   |
 | [`0x1D`](#0x1d--chlorinator-setpoint-)                         | Chlorinator Setpoint                | `0x0090` RolaChem, `0x0084` Viron, `0x0081` VX 11S v3 → Broadcast         | Byte 10: `0x00`=chlorine output level (VX 11S v3 only), `0x01`=pH, `0x02`=ORP; dispatched on CMD byte alone | Yes (unified handler)   |
 | [`0x1F`](#0x1f--chlorinator-reading-)                          | Chlorinator Reading                 | `0x0090` RolaChem, `0x0084` Viron → Broadcast                          | Byte 10: `0x01`=pH, `0x02`=ORP; same payload from both sources; dispatched on CMD byte alone | Yes (unified handler)   |
-| [`0x25`](#0x25--valve-sync-)                                   | Valve Sync                          | `0x0050` → `0x006F` Internal Channels                                  | Unicast                                                                                     | **No (doc only)**       |
+| [`0x25`](#0x25--valve-sync-)                                   | Valve Sync                          | `0x0050` → `0x006F` Internal Channels                                  | Unicast; valve counterpart of `0x0D`; dispatched on CMD byte alone                          | Yes (log-only)          |
 | [`0x26`](#0x26--configuration-️)                               | Configuration                       | `0x0050` → Broadcast                                                   |                                                                                             | Yes                     |
-| [`0x27`](#0x27--valve-state-broadcast-)                        | Valve State Broadcast               | `0x0050` → Broadcast                                                   | Two LEN variants: `0x0D` (short) and `0x13` (full)                                          | Yes (both variants)     |
+| [`0x27`](#0x27--valve-state-broadcast-)                        | Valve State Broadcast               | `0x0050` → Broadcast                                                   | Slot count + 3 bytes per slot; count is `0x00` (LEN `0x0D`) until a valve zone is configured, then `0x02` (LEN `0x13`); dispatched on CMD byte alone | Yes                     |
 | [`0x28`](#0x28--valve-control-command-)                        | Valve Control Command               | `0x00F0` Gateway → Broadcast                                           |                                                                                             | **No (doc only)**       |
 | [`0x29`](#0x29--valve-button-️)                                | Valve Button                        | `0x0062` Connect 8/10 → Broadcast                                      | 1-byte 0-based valve index; sent when a Valve button is pressed on the controller; the Touchscreen answers with `0x27`; dispatched on CMD byte alone | Yes (log-only)          |
 | [`0x2A`](#0x2a--favourite-control-command-)                    | Favourite Control Command           | `0x00F0` Gateway, `0x0062` Connect 8/10 → `0x0050` Touchscreen         | Unicast; dispatched on CMD byte alone (source-agnostic). The Connect 8/10 sends All Auto (`0x81`) for its Auto button | Yes (unified handler)   |
@@ -1385,7 +1385,7 @@ Current pH or ORP reading from the RolaChem chlorinator's sensors (`0x0090`). Th
 
 ### 0x25 — Valve Sync ✅
 
-Unicast from the Touchscreen (`0x0050`) to Internal Channels (`0x006F`) carrying the overall valve-active bitmask. Emitted as part of the regular broadcast cycle. No handler in `message_decoder.c` — documented only.
+Unicast from the Touchscreen (`0x0050`) to Internal Channels (`0x006F`) carrying the overall valve-active bitmask. Emitted as part of the Touchscreen's status cycle, but only once a valve zone is configured. The valve counterpart of [0x0D Active Channels Bitmask](#0x0d--active-channels-bitmask-), just as `0x27` is of [0x0B Channel Status](#0x0b--channel-status-). Handled by `handle_valve_sync` (log-only).
 
 **Pattern:** `02 00 50 00 6F 80 00 25 0D 73`
 
@@ -1416,7 +1416,9 @@ Unicast from the Touchscreen (`0x0050`) to Internal Channels (`0x006F`) carrying
 
 - Unlike most touchscreen messages, this is addressed specifically to Internal Channels (`0x006F`), not broadcast.
 - Mirrors the OR of all `active` flags in [0x27 Valve State Broadcast](#0x27--valve-state-broadcast-), encoded as a bitmask.
-- Emitted every broadcast cycle (~60 s); may lag real-time valve state changes by up to one cycle.
+- Sent only while at least one valve zone is configured. An install with no zones never emits it; on the zagnuts install the first `0x25` appeared in the same cycle as the first two-slot `0x27`, right after a valve was configured.
+- Part of the Touchscreen's status cycle, ~130 ms before the `0x27` that follows it — see [0x27](#0x27--valve-state-broadcast-) for the full sequence.
+- May lag real-time valve state: a valve switched On at the Touchscreen produced an immediate `0x27`, while the `0x25` with bit 0 set only arrived with the next cycle, 3.7 s later.
 
 ---
 
@@ -1469,26 +1471,46 @@ Broadcast from the Touchscreen (`0x0050`) carrying system configuration includin
 
 ### 0x27 — Valve State Broadcast ✅
 
-Broadcast by the Touchscreen (`0x0050`) to report the configured and active state of all valve zones. Appears in two LENGTH variants.
+Broadcast by the Touchscreen (`0x0050`) to report the configured and active state of all valve zones.
 
-**Pattern (short form):** `02 00 50 FF FF 80 00 27 0D 04`
+The payload is a slot count followed by one 3-byte entry (configured flag, state, active flag) per slot, so the frame length follows the count: `1 + 3×N` data bytes. Only two counts have been seen:
 
-Always carries a single zero data byte. Seen at startup before valve state is available, and — on an install with no valve zones configured — as the regular form.
+| Slot count | LENGTH | Header                          | When                                   |
+|------------|--------|---------------------------------|----------------------------------------|
+| `0x00`     | `0x0D` | `02 00 50 FF FF 80 00 27 0D 04` | No valve zone configured               |
+| `0x02`     | `0x13` | `02 00 50 FF FF 80 00 27 13 0A` | At least one valve zone configured     |
 
-Note that `0x27` is **not part of the idle broadcast cycle**. When Pool/Spa mode changes it appears exactly once, along with `0x15`/`0x1A`/`0x41`. It lands ~670–680 ms after the `0x15`, and before the [0x41](#0x41--valve-actuator-command-️). So the Touchscreen republishes valve state as a deliberate step of a mode change rather than on a timer.
+The count does not track the number of *configured* valves. Configuring a single valve takes it straight from `0x00` to `0x02`, with the unused slot sent as `00 00 00`; configuring the second valve later only fills that slot in. Confirmed live on two installs (round 8 and zagnuts), each captured while its first valve zone was configured.
 
-**Pattern (long form):** `02 00 50 FF FF 80 00 27 13 0A`
+**When it is sent:**
 
-Carries live per-valve state. Each valve occupies 3 bytes (configured flag, state, active flag).
+- **Status cycle, valves configured:** once a valve zone exists, `0x27` is part of the Touchscreen's status cycle, which runs about every 60 s and also a few seconds after a setting changes. It lands ~130 ms after [0x25 Valve Sync](#0x25--valve-sync-):
+  ```
+  0x05 → 0x06 → 0x06 → 0x14 → 0x25 → 0x27 → 0x26
+  ```
+  With no zones configured, the same cycle goes straight from `0x14` to `0x26`, with no `0x25` or `0x27`.
+- **Valve change at the Touchscreen:** sent immediately, ahead of the next cycle.
+- **[0x28 Valve Control Command](#0x28--valve-control-command-) from the Gateway:** answered ~130 ms later.
+- **Pool/Spa mode change:** appears exactly once, along with `0x15`/`0x1A`/`0x41`. It lands ~670–680 ms after the `0x15`, and before the [0x41](#0x41--valve-actuator-command-️), so the Touchscreen republishes valve state as a deliberate step of a mode change. On an install with no zones this is the only time `0x27` is seen, in its zero-slot form.
 
-**Example — Short form:**
+**Example — No valve zones configured:**
 
 ```
 02 00 50 FF FF 80 00 27 0D 04 00 00 03
-                              ^^ Data (always 0x00)
+                              ^^ Slot count (0x00 = no slots follow)
+                                 ^^ Data checksum
 ```
 
-**Example — Long form, both valves off:**
+**Example — Only Valve 1 configured, Off:**
+
+```
+02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 00 00 00 03 03
+                              ^^ Slot count (0x02)
+                                 ^^^^^^^^ Valve 1: configured, Off, Inactive
+                                          ^^^^^^^^ Valve 2: not configured
+```
+
+**Example — Both valves configured, both Off:**
 
 ```
 02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 00 00 04 03
@@ -1501,7 +1523,7 @@ Carries live per-valve state. Each valve occupies 3 bytes (configured flag, stat
                                                 ^^ Valve 2 active (0x00 = Inactive)
 ```
 
-**Example — Long form, Valve 1 On and active:**
+**Example — Valve 1 On and active:**
 
 ```
 02 00 50 FF FF 80 00 27 13 0A 02 01 02 01 01 00 00 07 03
@@ -1509,7 +1531,7 @@ Carries live per-valve state. Each valve occupies 3 bytes (configured flag, stat
                                        ^^ Valve 1 active: 0x01 = Active
 ```
 
-**Example — Long form, Valve 2 On and active:**
+**Example — Valve 2 On and active:**
 
 ```
 02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 02 01 07 03
@@ -1517,14 +1539,15 @@ Carries live per-valve state. Each valve occupies 3 bytes (configured flag, stat
                                              ^^ Valve 2 active: 0x01 = Active
 ```
 
-**Data Fields (long form):**
+**Data Fields:**
 
-- Byte 10: Valve slot count (0x02 = 2 slots)
+- Byte 10: Valve slot count (`0x00` = no zones configured, nothing follows; `0x02` = 2 slots)
 - Bytes 11–13: Valve 1 entry:
   - Byte 11: Configured (`0x00` = not present, `0x01` = configured)
   - Byte 12: State (`0x00` = Off, `0x01` = Auto, `0x02` = On)
   - Byte 13: Active (`0x00` = Inactive, `0x01` = Active)
 - Bytes 14–16: Valve 2 entry (same layout as bytes 11–13)
+- Final data byte: data checksum (sum of the data bytes before it)
 
 **State Values:**
 
@@ -1534,12 +1557,14 @@ Carries live per-valve state. Each valve occupies 3 bytes (configured flag, stat
 
 **Notes:**
 
-- The short form (LENGTH=`0x0D`) appears at startup, and is all an install with no configured valve zones ever emits; the long form (LENGTH=`0x13`) carries live state
-- These are the user-configurable **valve zones**. The combo valve actuators that swing on a mode change are a separate subsystem driven by [0x41](#0x41--valve-actuator-command-️) and are not reported here — an install can be actuating them while `0x27` still reads all zeros
+- The valve counterpart of [0x0B Channel Status](#0x0b--channel-status-): the same count + `{kind, state, active}` entry layout and state codes, with unused slots sent as `00 00 00`. Unlike `0x0B`, which always carries every channel slot, `0x27` drops to zero slots while no valve zone exists
+- These are the user-configurable **valve zones**. The combo valve actuators that swing on a mode change are a separate subsystem driven by [0x41](#0x41--valve-actuator-command-️) and are not reported here — an install can be actuating them while `0x27` reports zero slots
 - Valves not yet configured appear as `00 00 00` in their slot
 - Whether a valve supports Auto mode depends on its configuration; in the observed capture valve 1 was configured without Auto, valve 2 was configured with Auto
 - Valve labels are stored via the register system (`0xD0`–`0xD1`, Slot `0x02`); see [Appendix A](#appendix-a-register-dispatch-table)
 - State transitions correlate exactly with [0x25 Valve Sync](#0x25--valve-sync-)
+- In every capture so far, Active is set exactly when State is On. Auto has only been seen with Active clear, so whether Active tracks a running Auto schedule is untested ⚠️
+- Not yet captured: configuring only Valve 2 (expected `02 00 00 00 01 …`), or removing every zone (expected to fall back to zero slots and stop `0x25`) ⚠️
 
 ---
 
@@ -1596,8 +1621,8 @@ Broadcast by the Connect 8/10 (`0x0062`) when one of its Valve buttons is presse
 **Notes:**
 
 - The Touchscreen answers every press within ~200 ms with a [0x27 Valve State Broadcast](#0x27--valve-state-broadcast-).
-- Captured only on an install with no valve zones configured on the Touchscreen, so every answer was the short-form `0x27` and the press changed nothing. Valve 1 is confirmed by a single recorded press. Valve 2 is inferred from an earlier capture that also had `0x01` presses.
-- **Unknown:** what the press does when a valve zone is configured. By analogy with `0x10` it probably cycles the valve's state, which would show as a changed long-form `0x27`.
+- Captured only on an install with no valve zones configured on the Touchscreen, so every answer was a zero-slot `0x27` and the press changed nothing. Valve 1 is confirmed by a single recorded press. Valve 2 is inferred from an earlier capture that also had `0x01` presses.
+- **Unknown:** what the press does when a valve zone is configured. By analogy with `0x10` it probably cycles the valve's state, which would show as a changed `0x27` slot entry.
 - Handled by `handle_valve_button`, dispatched on the CMD byte alone. Log-only: valve state comes from the `0x27` that follows.
 
 ---
@@ -2396,8 +2421,8 @@ Unicast from the Touchscreen (`0x0050`) to Internal Control (`0x007F`) that driv
 - On the observed installation, position 1 happens to be the spa flow path: switching to Spa via [0x15](#0x15--mode-set-command-spapool-) physically actuated both valves and produced `01 01`; switching back to Pool returned them and produced `00 01`. Note this is **inverted relative to** the [0x14](#0x14--mode-spapool-)/[0x15](#0x15--mode-set-command-spapool-) mode encoding, where Spa=`0x00` and Pool=`0x01` — further reason to treat byte 10 as an actuator position rather than a mode.
 - Only `0x00` and `0x01` have been seen in byte 10. That matches the hardware, which has exactly two cam-limited endpoints, but whether the field is a boolean or a wider enumeration (mid-travel, a third port) is unconfirmed. ⚠️
 - Byte 11 is unconfirmed as a group selector, but the hardware makes it plausible. The controller has four actuator sockets: a pair labelled **inlet** and **outlet** that the manual says "are allocated to the pool/spa function of the controller and **turn simultaneously**", plus two auxiliary sockets labelled **Valve 1** and **Valve 2**. Group `0x01` is presumably that hardwired inlet/outlet pair, which is consistent with both valves moving on a single `0x41`. Whether the auxiliary sockets are addressable as further groups here is unknown — on this install they are driven as valve *zones* instead (see below), and no value other than `0x01` has been captured. ⚠️
-- **Distinct from the valve *zones*** of [0x27](#0x27--valve-state-broadcast-)/[0x28](#0x28--valve-control-command-). Those are the two auxiliary actuator sockets (Valve 1 / Valve 2), user-configurable with Off/Auto/On states and addressed by index. The pool/spa actuator pair driven here is not exposed as a zone: on the observed installation `0x27` reports the short all-zero form while these valves are being driven.
-- **A mode change is a valve-state-publishing event, but the combo valves are left out of it.** The [0x27](#0x27--valve-state-broadcast-) two frames earlier in the burst is not incidental: it fires *only* on a mode change. In each capture it appears exactly once, the same count as `0x15`/`0x1A`/`0x41`, while the idle cycle runs throughout (`0x14` appears 6–8 times over the same two minutes) — and always in a fixed slot, ~670–680 ms after the `0x15`. The Touchscreen is therefore republishing valve state as a deliberate step of the sequence, zones first and then the combo actuators. On the observed installion the zones half is empty, so that slot degenerates to the short all-zero form; an install with zones configured would presumably carry the long form there.
+- **Distinct from the valve *zones*** of [0x27](#0x27--valve-state-broadcast-)/[0x28](#0x28--valve-control-command-). Those are the two auxiliary actuator sockets (Valve 1 / Valve 2), user-configurable with Off/Auto/On states and addressed by index. The pool/spa actuator pair driven here is not exposed as a zone: on the observed installation `0x27` reports zero slots while these valves are being driven.
+- **A mode change is a valve-state-publishing event, but the combo valves are left out of it.** The [0x27](#0x27--valve-state-broadcast-) two frames earlier in the burst is not incidental: on an install with no valve zones configured it fires *only* on a mode change. In each capture it appears exactly once, the same count as `0x15`/`0x1A`/`0x41`, while the idle cycle runs throughout (`0x14` appears 6–8 times over the same two minutes) — and always in a fixed slot, ~670–680 ms after the `0x15`. The Touchscreen is therefore republishing valve state as a deliberate step of the sequence, zones first and then the combo actuators. On the observed installation the zones half is empty, so that slot carries the zero-slot form; an install with zones configured would presumably carry the full slots there.
 - **Nothing reports the resulting actuator position back, though.** That published slot covers zones only, and it lands *before* the actuators move. After the `0x41` each capture runs for over two minutes with no further `0x27`, no [0x25](#0x25--valve-sync-) Valve Sync at all, and no frame of any kind from `0x007F`. The commanded position is write-only as far as the bus is concerned: the only way to know where these valves are is to have seen the `0x41` that put them there, which is why the handler is log-only and no `pool_state` field tracks the position. Whether an install with zones configured also reports combo-valve position in that slot is untested. ⚠️
 - Not reproduced by injection yet — the capture shows the Touchscreen emitting it, not an external sender commanding it. To change modes from the bus, send [0x15](#0x15--mode-set-command-spapool-) and let the Touchscreen sequence the valves.
 

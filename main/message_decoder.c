@@ -98,9 +98,7 @@ static const char *MSG_TYPE_CHANNEL_STATUS =        "02 00 50 FF FF 80 00 0B 25 
 static const char *MSG_TYPE_LIGHT_CONFIG =          "02 00 50 FF FF 80 00 06 0E E4";
 static const char *MSG_TYPE_CONTROLLER_TIME =       "02 00 50 FF FF 80 00 FD 0F DC";
 static const char *MSG_TYPE_TOUCHSCREEN_UNKNOWN1 =  "02 00 50 FF FF 80 00 12 0E F0";
-static const char *MSG_TYPE_TOUCHSCREEN_UNKNOWN2 =  "02 00 50 FF FF 80 00 27 0D 04";
 static const char *MSG_TYPE_TOUCHSCREEN_UNKNOWN3 =  "02 00 50 FF FF 80 00 05 0D E2";
-static const char *MSG_TYPE_VALVE_STATE =           "02 00 50 FF FF 80 00 27 13 0A";
 
 // Motorised valve actuators (Touchscreen 0x0050 -> Internal Control 0x007F),
 // emitted as a pair on every mode change. See PROTOCOL.md commands `0x1A` and
@@ -1724,28 +1722,6 @@ static bool handle_unknown(
 }
 
 /**
- * Handler: Controller status message
- * Pattern: "02 00 50 FF FF 80 00 27 0D 04"
- */
-static bool handle_touchscreen_unknown2(
-    const uint8_t *data, int len,
-    const uint8_t *payload, int payload_len,
-    const char *addr_info,
-    message_decoder_context_t *ctx)
-{
-    // Short form of valve state broadcast (startup / no valve state available).
-    // PROTOCOL.md 0x27 short form always carries a single 0x00 data byte.
-    if (payload_len >= 1 && payload[0] != 0x00) {
-        ESP_LOGW(TAG, "%s Valve state broadcast (startup form) - unexpected data byte: 0x%02X (expected 0x00)",
-                 addr_info, payload[0]);
-        record_undocumented(data, len);
-    } else {
-        ESP_LOGI(TAG, "%s Valve state broadcast (startup form)", addr_info);
-    }
-    return true;
-}
-
-/**
  * Handler: Touchscreen unknown broadcast (CMD 0x05)
  * Invariant across all captures: data byte always 0x00 or 0x01.
  * Silenced here to avoid spurious "Unhandled" warnings.
@@ -1770,9 +1746,10 @@ static bool handle_touchscreen_unknown3(
 }
 
 /**
- * Handler: Valve state broadcast (long form)
- * Pattern: "02 00 50 FF FF 80 00 27 13 0A"
- * Byte 10: slot count; then 3 bytes per slot: [configured][state][active]
+ * Handler: Valve state broadcast (CMD 0x27)
+ * Byte 10: slot count; then 3 bytes per slot: [configured][state][active].
+ * The count is 0 (payload `00`, LEN 0x0D) while no valve zone is configured,
+ * and jumps to the full slot count (LEN 0x13) once any one is.
  */
 static bool handle_valve_state(
     const uint8_t *data, int len,
@@ -1792,7 +1769,9 @@ static bool handle_valve_state(
         return true;
     }
 
-    // Log each configured valve before taking the mutex
+    // Log each slot before taking the mutex, in the same layout as
+    // handle_channel_status
+    ESP_LOGI(TAG, "%s Valve state (%d slots):", addr_info, slot_count);
     bool undocumented_state = false;
     for (int i = 0; i < slot_count; i++) {
         bool configured = (payload[1 + i * 3] == 0x01);
@@ -1800,10 +1779,11 @@ static bool handle_valve_state(
         bool active     = (payload[3 + i * 3] == 0x01);
         if (configured) {
             const char *state_name = (state < CHANNEL_STATE_COUNT) ? CHANNEL_STATE_NAMES[state] : "Unknown";
-            ESP_LOGI(TAG, "%s Valve %d - %s (%s)", addr_info, i + 1,
-                     state_name, active ? "Active" : "Inactive");
+            ESP_LOGI(TAG, "  V%d: %s (%s)", i + 1, state_name, active ? "Active" : "Inactive");
             // Valves only use Off/Auto/On (0x00-0x02); flag anything else.
             if (state > 0x02) undocumented_state = true;
+        } else {
+            ESP_LOGI(TAG, "  V%d: Unused", i + 1);
         }
     }
     if (undocumented_state) {
@@ -3561,6 +3541,33 @@ static bool handle_channels(
 }
 
 /**
+ * Handler: Valve Sync — active valves bitmask (CMD 0x25)
+ * The valve counterpart of handle_channels (CMD 0x0D): bit 0 = valve 1,
+ * bit 1 = valve 2. Log-only; valve state comes from CMD 0x27.
+ */
+static bool handle_valve_sync(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 1) return false;
+
+    uint8_t bitmask = payload[0];
+    ESP_LOGI(TAG, "%s Active valves - 0x%02X [%c%c]",
+             addr_info, bitmask,
+             (bitmask & 0x02) ? '2' : '-',
+             (bitmask & 0x01) ? '1' : '-');
+
+    // Only bits 0-1 (two valve slots) are documented
+    if (bitmask & ~0x03) {
+        record_undocumented(data, len);
+    }
+
+    return true;
+}
+
+/**
  * Handler: Channel status message (most complex handler)
  * Pattern: "02 00 50 FF FF 80 00 0B 25 00"
  */
@@ -3972,6 +3979,19 @@ static bool dispatch_message(
         return handle_valve_button(data, len, payload, payload_len, addr_info, ctx);
     }
 
+    // Valve state broadcast (CMD 0x27) — source-agnostic; only the
+    // Touchscreen (0x0050) observed sending it so far. One layout whose
+    // length follows the slot count in payload[0].
+    if (cmd == 0x27) {
+        return handle_valve_state(data, len, payload, payload_len, addr_info, ctx);
+    }
+
+    // Valve Sync (CMD 0x25) — source-agnostic; only the Touchscreen (0x0050)
+    // observed sending it, to Internal Channels (0x006F)
+    if (cmd == 0x25) {
+        return handle_valve_sync(data, len, payload, payload_len, addr_info, ctx);
+    }
+
     // Water temperature reading — CMD 0x16 (canonical) and CMD 0x31 (alt/
     // log-only) share the same {temp1, temp2} layout and are routed through
     // the same handler. See PROTOCOL.md commands `0x16` and `0x31`.
@@ -4208,20 +4228,12 @@ static bool dispatch_message(
         return handle_touchscreen_unknown1(data, len, payload, payload_len, addr_info, ctx);
     }
 
-    if (match_pattern(data, len, MSG_TYPE_VALVE_STATE)) {
-        return handle_valve_state(data, len, payload, payload_len, addr_info, ctx);
-    }
-
     if (match_pattern(data, len, MSG_TYPE_PRE_VALVE_FRAME)) {
         return handle_pre_valve_frame(data, len, payload, payload_len, addr_info, ctx);
     }
 
     if (match_pattern(data, len, MSG_TYPE_VALVE_ACTUATOR_CMD)) {
         return handle_valve_actuator_cmd(data, len, payload, payload_len, addr_info, ctx);
-    }
-
-    if (match_pattern(data, len, MSG_TYPE_TOUCHSCREEN_UNKNOWN2)) {
-        return handle_touchscreen_unknown2(data, len, payload, payload_len, addr_info, ctx);
     }
 
     if (match_pattern(data, len, MSG_TYPE_TOUCHSCREEN_UNKNOWN3)) {
