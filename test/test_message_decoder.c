@@ -41,6 +41,7 @@ void mqtt_publish_heater_setpoints(const pool_state_t *state, int index) {}
 void mqtt_publish_temperature_reading(const pool_state_t *state, int dev_idx, uint8_t sensor_index) {}
 void mqtt_publish_heater(const pool_state_t *state, int index) {}
 void mqtt_publish_gas_heater(const pool_state_t *state, int index) {}
+void mqtt_publish_heater_telemetry(const pool_state_t *state, int index, bool force) {}
 void mqtt_publish_chlorinator(const pool_state_t *state) {}
 void mqtt_publish_pump(const pool_state_t *state) {}
 void mqtt_publish_service_mode(const pool_state_t *state) {}

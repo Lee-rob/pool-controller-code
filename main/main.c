@@ -25,6 +25,7 @@
 #include "unknown_buffer.h"
 #include "heap_monitor.h"
 #include "firmware_update.h"
+#include "heater_freshness.h"
 
 // ==================== APPLICATION =====================
 // All configuration values are in config.h
@@ -244,4 +245,5 @@ void app_main(void)
     // Periodically log heap stats so a slow leak or fragmentation trend is
     // visible in the log history before it can exhaust memory and crash.
     heap_monitor_start();
+    heater_freshness_start();
 }

@@ -120,6 +120,13 @@ typedef struct {
     // that bit does not track it (observed stuck at 0 while the heater ran).
     bool device_reported;
 
+    // Freshness of telemetry received directly from the dedicated heater.
+    // This is independent of controller enable/request state and generic bus
+    // activity. Epoch is zero until wall-clock time has synchronised.
+    bool communications_online;
+    uint32_t device_last_response_ms;
+    int64_t device_last_sample_epoch;
+
     // Temperature setpoints (per heater): 0xE7/0xE8 (Heater 1), 0xEA/0xEB (Heater 2)
     uint8_t pool_setpoint;     // °C
     uint8_t spa_setpoint;      // °C

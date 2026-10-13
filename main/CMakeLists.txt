@@ -23,6 +23,7 @@ idf_component_register(
         "dns_server.c"
         "heap_monitor.c"
         "firmware_update.c"
+        "heater_freshness.c"
     INCLUDE_DIRS
          "."
     EMBED_TXTFILES

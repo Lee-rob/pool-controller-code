@@ -257,9 +257,19 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             xSemaphoreGive(s_pool_state_mutex);
         }
         if (have_state_snapshot) {
+            // This custom build targets an installed Viron heater at 0x0071.
+            // Republish its discovery before any fresh heater reply so retained
+            // telemetry from an earlier boot is immediately marked unavailable.
+            mqtt_publish_heater_discovery_single(0);
+            mqtt_publish_gas_heater_discovery_single(0);
+            mqtt_publish_temperature_sensor_discovery_single(0x00, 0x71, 1, true);
+            mqtt_publish_heater_telemetry(state_snapshot, 0, true);
             for (int i = 0; i < MAX_HEATERS; i++) {
                 if (heater_setpoint_valid(&state_snapshot->heaters[i])) {
                     mqtt_publish_heater_setpoints(state_snapshot, i);
+                }
+                if (i != 0 && state_snapshot->heaters[i].device_reported) {
+                    mqtt_publish_heater_telemetry(state_snapshot, i, true);
                 }
             }
         }

@@ -763,7 +763,18 @@ static esp_err_t status_get_handler(httpd_req_t *req)
         }
         cJSON *heater = cJSON_CreateObject();
         cJSON_AddNumberToObject(heater, "index", i);
+        cJSON_AddBoolToObject(heater, "communications_online",
+                              state.heaters[i].communications_online);
+        cJSON_AddNumberToObject(heater, "last_device_response_ms",
+                                state.heaters[i].device_last_response_ms);
+        if (state.heaters[i].device_last_sample_epoch > 0) {
+            cJSON_AddNumberToObject(heater, "last_sample_epoch",
+                                    (double)state.heaters[i].device_last_sample_epoch);
+        } else {
+            cJSON_AddNullToObject(heater, "last_sample_epoch");
+        }
         if (state.heaters[i].valid) {
+            cJSON_AddStringToObject(heater, "enable_request", state.heaters[i].on ? "On" : "Off");
             cJSON_AddStringToObject(heater, "state", state.heaters[i].on ? "On" : "Off");
         }
         if (state.heaters[i].gas_heater_valid) {

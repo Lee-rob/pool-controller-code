@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "cJSON.h"
 #include <string.h>
+#include <time.h>
 #include <stdio.h>
 
 static const char *TAG = "MQTT_PUBLISH";
@@ -55,6 +56,9 @@ static filter_pump_type_t s_last_filter_pump_type = FILTER_PUMP_TYPE_UNKNOWN;
 // retracted even when its display name stays the same.
 static bool s_channel_discovery_pump_select[MAX_CHANNELS];
 static bool s_channel_discovery_pump_speeds[MAX_CHANNELS];
+static bool s_heater_telemetry_discovery[MAX_HEATERS];
+static bool s_last_heater_online[MAX_HEATERS];
+static int64_t s_last_heater_sample_epoch[MAX_HEATERS];
 static uint16_t s_last_power_watts[MAX_CHANNELS];
 
 // Whether the pump's discovery was last published with its power and energy
@@ -281,6 +285,39 @@ void mqtt_publish_gas_heater(const pool_state_t *current_state, int index)
     s_last_published_state.heaters[index].cooling_available = heater->cooling_available;
 
     ESP_LOGI(TAG, "Published gas heater %d: %s", index, payload);
+}
+
+void mqtt_publish_heater_telemetry(const pool_state_t *current_state, int index, bool force)
+{
+    if (index < 0 || index >= MAX_HEATERS || !mqtt_client_is_connected()) return;
+    const pool_heater_t *heater = &current_state->heaters[index];
+    if (!force && s_heater_telemetry_discovery[index] &&
+        s_last_heater_online[index] == heater->communications_online &&
+        s_last_heater_sample_epoch[index] == heater->device_last_sample_epoch) return;
+
+    if (!s_heater_telemetry_discovery[index]) {
+        mqtt_publish_heater_telemetry_discovery_single(index);
+        s_heater_telemetry_discovery[index] = true;
+    }
+
+    char device_id[32], topic[128], avail_topic[128], timestamp[32] = "";
+    mqtt_get_device_id(device_id, sizeof(device_id));
+    snprintf(topic, sizeof(topic), "pool/%s/heater/%d/telemetry/state", device_id, index);
+    snprintf(avail_topic, sizeof(avail_topic), "pool/%s/heater/%d/telemetry/availability", device_id, index);
+    if (heater->device_last_sample_epoch > 0) {
+        time_t epoch = (time_t)heater->device_last_sample_epoch;
+        struct tm tm;
+        gmtime_r(&epoch, &tm);
+        strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    }
+    char payload[128];
+    snprintf(payload, sizeof(payload), "{\"online\":%s,\"sample_time\":%s%s%s}",
+             heater->communications_online ? "true" : "false",
+             timestamp[0] ? "\"" : "null", timestamp, timestamp[0] ? "\"" : "");
+    mqtt_publish(topic, payload, 0, true);
+    mqtt_publish(avail_topic, heater->communications_online ? "online" : "offline", 0, true);
+    s_last_heater_online[index] = heater->communications_online;
+    s_last_heater_sample_epoch[index] = heater->device_last_sample_epoch;
 }
 
 // ======================================================

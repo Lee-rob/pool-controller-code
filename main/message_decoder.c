@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <time.h>
 
 static const char *TAG = "MSG_DECODER";
 
@@ -797,6 +798,15 @@ static bool handle_temp_reading(
     bool publish_temp2 = (dev_idx >= 0)
                       && !ctx->pool_state->seen_devices[dev_idx].single_sensor_source
                       && ctx->pool_state->seen_devices[dev_idx].temp2_valid;
+    // A direct temperature report from the Viron heater is a genuine device
+    // sample, even when the temperature value itself has not changed.
+    if (data[1] == 0x00 && data[2] == 0x71) {
+        pool_heater_t *heater = &ctx->pool_state->heaters[0];
+        heater->communications_online = true;
+        heater->device_last_response_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        time_t now = time(NULL);
+        if (now > 1577836800) heater->device_last_sample_epoch = (int64_t)now;
+    }
     state_unlock(ctx, true, &snapshot);
 
     if (t1_invalid || dev_idx < 0) {
@@ -807,6 +817,9 @@ static bool handle_temp_reading(
         mqtt_publish_temperature_reading(&snapshot, dev_idx, 1);
         if (publish_temp2) {
             mqtt_publish_temperature_reading(&snapshot, dev_idx, 2);
+        }
+        if (data[1] == 0x00 && data[2] == 0x71) {
+            mqtt_publish_heater_telemetry(&snapshot, 0, true);
         }
     }
 
@@ -1144,6 +1157,10 @@ static bool handle_gas_heater_status(
     heater_state->valid = true;
     heater_state->on = heater_on;
     heater_state->device_reported = true;
+    heater_state->communications_online = true;
+    heater_state->device_last_response_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    time_t now = time(NULL);
+    if (now > 1577836800) heater_state->device_last_sample_epoch = (int64_t)now;
 
     heater_state->gas_heater_valid = true;
     heater_state->water_flow_detected = water_flow_detected;
@@ -1159,6 +1176,7 @@ static bool handle_gas_heater_status(
     if (ctx->enable_mqtt) {
         mqtt_publish_heater(&snapshot, 0);
         mqtt_publish_gas_heater(&snapshot, 0);
+        mqtt_publish_heater_telemetry(&snapshot, 0, true);
     }
 
     return true;
