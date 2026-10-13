@@ -755,7 +755,7 @@ static void publish_mode_discovery(const char *device_id, const char *mac_suffix
 static void publish_channel_discovery(const char *device_id, const char *mac_suffix,
                                       int channel_num, const char *channel_name,
                                       bool include_state_entities, bool include_power_sensors,
-                                      bool include_pump_mode_select)
+                                      bool include_mode_select, bool include_pump_speeds)
 {
     char avail_topic[128];
     char state_topic[128];
@@ -910,7 +910,7 @@ static void publish_channel_discovery(const char *device_id, const char *mac_suf
     snprintf(mode_uid, sizeof(mode_uid), DISCOVERY_ID_PREFIX "_%s_ch%d_mode",
              mac_suffix, channel_num);
 
-    if (include_pump_mode_select) {
+    if (include_mode_select) {
         char mode_command_topic[128];
         snprintf(mode_command_topic, sizeof(mode_command_topic),
                  "pool/%s/channel/%d/mode/set", device_id, channel_num);
@@ -930,7 +930,7 @@ static void publish_channel_discovery(const char *device_id, const char *mac_suf
         cJSON *opts = cJSON_CreateArray();
         cJSON_AddItemToArray(opts, cJSON_CreateString(CHANNEL_STATE_NAMES[0]));  // Off
         cJSON_AddItemToArray(opts, cJSON_CreateString(CHANNEL_STATE_NAMES[1]));  // Auto
-        if (filter_pump_type_get() == FILTER_PUMP_TYPE_MULTI_SPEED) {
+        if (include_pump_speeds && filter_pump_type_get() == FILTER_PUMP_TYPE_MULTI_SPEED) {
             // "On" is omitted deliberately: the Touchscreen normalises it to
             // High Speed on these channels and never reports it back, so it
             // would be an option that silently means something else.
@@ -1638,7 +1638,7 @@ void mqtt_publish_pump_discovery_single(bool include_power_sensors)
 
 void mqtt_publish_channel_discovery_single(int channel_num, const char *channel_name,
                                            bool include_state_entities, bool include_power_sensors,
-                                           bool include_pump_mode_select)
+                                           bool include_mode_select, bool include_pump_speeds)
 {
     char device_id[32];
     mqtt_get_device_id(device_id, sizeof(device_id));
@@ -1649,7 +1649,7 @@ void mqtt_publish_channel_discovery_single(int channel_num, const char *channel_
     ESP_LOGI(TAG, "Publishing discovery for channel %d: %s", channel_num, channel_name);
     publish_channel_discovery(device_id, mac_suffix, channel_num, channel_name,
                               include_state_entities, include_power_sensors,
-                              include_pump_mode_select);
+                              include_mode_select, include_pump_speeds);
 }
 
 void mqtt_publish_system_power_discovery_single(bool include_power_sensors)

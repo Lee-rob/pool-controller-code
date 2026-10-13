@@ -40,13 +40,13 @@ void mqtt_publish_update_discovery_single(void);
 // the power and energy sensors instead of a config, so they don't sit at
 // unknown on a channel that can't report them; call again with true once one
 // is configured.
-// include_pump_mode_select adds the direct-set select (CMD 0x0F). Pump-driven
-// channels act on that command — Filter and Cleaning are both confirmed (see
-// PROTOCOL.md 0x0F) — but the select is offered on Filter alone, since only
-// that channel's pump type is tracked.
+// include_mode_select adds an explicit state select. Filter channels use the
+// direct-set CMD 0x0F path; Solar and Blower use a verified toggle-to-target
+// path in mqtt_commands. include_pump_speeds controls whether a learned
+// multi-speed Filter exposes Low/Medium/High instead of On.
 void mqtt_publish_channel_discovery_single(int channel_num, const char *channel_name,
                                            bool include_state_entities, bool include_power_sensors,
-                                           bool include_pump_mode_select);
+                                           bool include_mode_select, bool include_pump_speeds);
 
 // Publish the system baseline power entities (the "Power: System" number, plus
 // the power and energy sensors when include_power_sensors is true — same

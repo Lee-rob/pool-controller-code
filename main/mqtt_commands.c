@@ -8,12 +8,21 @@
 #include "register_requester.h"
 #include "channel_power.h"
 #include "esp_log.h"
+#include "freertos/task.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <inttypes.h>
 
 static const char *TAG = "MQTT_COMMANDS";
+
+typedef struct {
+    uint8_t channel_id;
+    uint8_t target_state;
+    uint32_t sequence;
+} channel_target_task_args_t;
+
+static uint32_t s_channel_target_sequence[MAX_CHANNELS];
 
 // ======================================================
 // UART Command Helpers
@@ -31,10 +40,8 @@ static void send_uart_command(const uint8_t *data, size_t len)
 // Channel Control
 // ======================================================
 
-static void handle_channel_command(int channel_id, const char *payload, int payload_len)
+static void send_channel_toggle(int channel_id)
 {
-    ESP_LOGI(TAG, "Channel %d command: %.*s", channel_id, payload_len, payload);
-
     uint8_t channel_idx = channel_id - 1;
 
     if (channel_idx >= MAX_CHANNELS) {
@@ -60,6 +67,93 @@ static void handle_channel_command(int channel_id, const char *payload, int payl
     send_uart_command(cmd, sizeof(cmd));
 }
 
+static void handle_channel_command(int channel_id, const char *payload, int payload_len)
+{
+    ESP_LOGI(TAG, "Channel %d command: %.*s", channel_id, payload_len, payload);
+    send_channel_toggle(channel_id);
+}
+
+static bool get_channel_state(uint8_t channel_id, uint8_t *state, channel_type_t *type)
+{
+    if (!s_pool_state_mutex || channel_id < 1 || channel_id > MAX_CHANNELS) return false;
+    if (xSemaphoreTake(s_pool_state_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) != pdTRUE) return false;
+    const channel_state_t *channel = &s_pool_state.channels[channel_id - 1];
+    bool valid = channel->configured && channel->state < CHANNEL_STATE_COUNT;
+    if (valid) {
+        *state = channel->state;
+        if (type) *type = channel->type;
+    }
+    xSemaphoreGive(s_pool_state_mutex);
+    return valid;
+}
+
+// Solar and Blower do not reliably accept the direct pump-mode command. Walk
+// their normal Off/Auto/On toggle ring, but verify every reported state before
+// sending the next toggle. A sequence number cancels an older worker if HA
+// sends a newer choice while the first request is still settling.
+static void channel_target_task(void *arg)
+{
+    channel_target_task_args_t request = *(channel_target_task_args_t *)arg;
+    free(arg);
+    const uint8_t idx = request.channel_id - 1;
+
+    for (int toggle_count = 0; toggle_count < 3; toggle_count++) {
+        if (__atomic_load_n(&s_channel_target_sequence[idx], __ATOMIC_RELAXED) != request.sequence) break;
+
+        uint8_t current;
+        if (get_channel_state(request.channel_id, &current, NULL) && current == request.target_state) {
+            ESP_LOGI(TAG, "Channel %u reached requested state %s",
+                     request.channel_id, CHANNEL_STATE_NAMES[request.target_state]);
+            vTaskDelete(NULL);
+            return;
+        }
+
+        send_channel_toggle(request.channel_id);
+
+        // Wait up to 1.2 s for a controller broadcast confirming the result.
+        for (int poll = 0; poll < 12; poll++) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            if (__atomic_load_n(&s_channel_target_sequence[idx], __ATOMIC_RELAXED) != request.sequence) {
+                vTaskDelete(NULL);
+                return;
+            }
+            if (get_channel_state(request.channel_id, &current, NULL) && current == request.target_state) {
+                ESP_LOGI(TAG, "Channel %u reached requested state %s",
+                         request.channel_id, CHANNEL_STATE_NAMES[request.target_state]);
+                vTaskDelete(NULL);
+                return;
+            }
+        }
+    }
+
+    ESP_LOGW(TAG, "Channel %u did not reach requested state %s after three verified toggles",
+             request.channel_id, CHANNEL_STATE_NAMES[request.target_state]);
+    vTaskDelete(NULL);
+}
+
+static void start_toggle_to_target(int channel_id, uint8_t target_state)
+{
+    uint8_t current;
+    if (get_channel_state((uint8_t)channel_id, &current, NULL) && current == target_state) {
+        ESP_LOGI(TAG, "Channel %d is already %s", channel_id, CHANNEL_STATE_NAMES[target_state]);
+        return;
+    }
+
+    channel_target_task_args_t *args = malloc(sizeof(*args));
+    if (!args) {
+        ESP_LOGE(TAG, "No memory for channel target worker");
+        return;
+    }
+    args->channel_id = (uint8_t)channel_id;
+    args->target_state = target_state;
+    args->sequence = __atomic_add_fetch(&s_channel_target_sequence[channel_id - 1], 1, __ATOMIC_RELAXED);
+
+    if (xTaskCreate(channel_target_task, "channel_target", 3072, args, 3, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to start channel target worker");
+        free(args);
+    }
+}
+
 // Set a channel directly to a named state via CMD 0x0F, rather than stepping
 // it round the toggle ring. Only pump-driven channels act on this; see
 // PROTOCOL.md command `0x0F`.
@@ -83,6 +177,20 @@ static void handle_channel_mode_command(int channel_id, const char *payload, int
     }
     if (state < 0) {
         ESP_LOGE(TAG, "Unknown channel mode: %.*s", payload_len, payload);
+        return;
+    }
+
+    channel_type_t channel_type = CHANNEL_TYPE_UNUSED;
+    uint8_t current_state;
+    bool have_channel = get_channel_state((uint8_t)channel_id, &current_state, &channel_type);
+    if (have_channel && (channel_type == CHANNEL_TYPE_SOLAR || channel_type == CHANNEL_TYPE_BLOWER)) {
+        if (state > 2) {
+            ESP_LOGE(TAG, "Channel %d only supports Off/Auto/On", channel_id);
+            return;
+        }
+        ESP_LOGI(TAG, "Selecting channel %d %s via verified toggle sequence",
+                 channel_id, CHANNEL_STATE_NAMES[state]);
+        start_toggle_to_target(channel_id, (uint8_t)state);
         return;
     }
 

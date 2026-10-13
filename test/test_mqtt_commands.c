@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "freertos/task.h"
 #include "../main/mqtt_commands.h"
 #include "../main/pool_state.h"
 
@@ -140,6 +141,14 @@ pool_state_t       s_pool_state;
 SemaphoreHandle_t  s_pool_state_mutex = NULL;
 
 uint32_t xTaskGetTickCount(void) { return 1000; }
+BaseType_t xTaskCreate(TaskFunction_t task, const char *name, uint32_t stack_depth,
+                       void *arg, unsigned priority, TaskHandle_t *handle)
+{
+    (void)task; (void)name; (void)stack_depth; (void)arg; (void)priority; (void)handle;
+    return pdFALSE;
+}
+void vTaskDelay(TickType_t ticks) { (void)ticks; }
+void vTaskDelete(TaskHandle_t task) { (void)task; }
 
 BaseType_t xSemaphoreTake(SemaphoreHandle_t s, TickType_t t)
 {

@@ -114,7 +114,7 @@ typedef struct {
 
     bool on;
 
-    // true once a dedicated heater device (Genus 0x0070, HiNRG 0x0072, ICI
+    // true once a dedicated heater device (Genus 0x0070, Viron 0x0071, HiNRG 0x0072, ICI
     // 0x0074) has reported its own CMD 0x12 status. The Connect 8/10's CMD 0x12
     // heater bit then stops writing `on` — on installs with an external heater
     // that bit does not track it (observed stuck at 0 while the heater ran).

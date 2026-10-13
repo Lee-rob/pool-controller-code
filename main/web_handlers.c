@@ -262,7 +262,11 @@ static esp_err_t home_get_handler(httpd_req_t *req)
         "const multi='temperature2' in d;"
         "rows.push([d.name+(multi?' Temperature 1':' Temperature'),d.temperature1+deg]);"
         "if(d.temperature2!=null)rows.push([d.name+' Temperature 2',d.temperature2+deg]);});"
-        "data.heaters.forEach(h=>rows.push(['Heater '+(h.index+1),h.state]));"
+        "data.heaters.forEach(h=>{"
+        "const n='Heater '+(h.index+1);"
+        "if(h.state!=null)rows.push([n,h.state]);"
+        "if(h.pool_setpoint!=null)rows.push([n+' Pool Target',h.pool_setpoint+deg]);"
+        "if(h.spa_setpoint!=null)rows.push([n+' Spa Target',h.spa_setpoint+deg]);});"
         "data.channels.forEach(ch=>rows.push([ch.name||ch.type,ch.state]));"
         "data.lighting.forEach(lt=>{"
         "let s=lt.state;if(lt.active&&lt.color)s+=': '+lt.color;"
@@ -2456,4 +2460,3 @@ esp_err_t web_handlers_register(httpd_handle_t server)
     ESP_LOGI(TAG, "Web/HTTP handlers registered (with captive portal 404 redirect)");
     return ESP_OK;
 }
-

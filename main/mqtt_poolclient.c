@@ -8,6 +8,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include <string.h>
+#include <stdlib.h>
 #include <stdatomic.h>
 
 // ESP-IDF MQTT component
@@ -18,6 +19,7 @@
 #include "mqtt_discovery.h"
 #include "mqtt_publish.h"
 #include "mqtt_commands.h"
+#include "pool_state.h"
 #include "firmware_update.h"
 #include "led_helper.h"
 
@@ -245,6 +247,23 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
         // Publish availability online
         publish_availability(true);
+
+        pool_state_t *state_snapshot = malloc(sizeof(*state_snapshot));
+        bool have_state_snapshot = false;
+        if (state_snapshot && s_pool_state_mutex &&
+            xSemaphoreTake(s_pool_state_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+            *state_snapshot = s_pool_state;
+            have_state_snapshot = true;
+            xSemaphoreGive(s_pool_state_mutex);
+        }
+        if (have_state_snapshot) {
+            for (int i = 0; i < MAX_HEATERS; i++) {
+                if (heater_setpoint_valid(&state_snapshot->heaters[i])) {
+                    mqtt_publish_heater_setpoints(state_snapshot, i);
+                }
+            }
+        }
+        free(state_snapshot);
 
         // Publish the system baseline power (discovery + state). Unlike
         // channels there's no bus event that would trigger it later, so it

@@ -321,6 +321,28 @@ void test_heater_device_setpoint_unplumbed_circuit(void)
     TEST_ASSERT(test_pool_state.heaters[0].pool_setpoint == 17, "Heater 1 pool setpoint should be 17°C");
 }
 
+void test_viron_heater_setpoint_broadcast(void)
+{
+    init_test_context();
+
+    uint8_t msg[] = {
+        0x02, 0x00, 0x71, 0xFF, 0xFF, 0x80, 0x00,
+        0x17, 0x0E, 0x16,
+        0x25,                   // Spa setpoint 37°C
+        0x1B,                   // Pool setpoint 27°C
+        0x40,
+        0x03
+    };
+
+    bool decoded = decode_message(msg, sizeof(msg), &test_ctx);
+    const pool_heater_t *h = &test_pool_state.heaters[0];
+    TEST_ASSERT(decoded, "Viron setpoint broadcast should be decoded");
+    TEST_ASSERT(h->spa_setpoint_valid && h->spa_setpoint == 37,
+                "Viron spa setpoint should be 37°C");
+    TEST_ASSERT(h->pool_setpoint_valid && h->pool_setpoint == 27,
+                "Viron pool setpoint should be 27°C");
+}
+
 /**
  * Test: heater device setpoint broadcast on a two-heater install. Once anything
  * has reported Heater 2, the broadcast cannot be attributed to a slot and must
@@ -1340,6 +1362,24 @@ void test_gas_heater_hinrg_heating(void)
     TEST_ASSERT(h->burner_state == BURNER_ALIGHT,      "HiNRG 0x0F: burner alight");
 }
 
+void test_gas_heater_viron_heating(void)
+{
+    init_test_context();
+    uint8_t msg[] = {
+        0x02, 0x00, 0x71, 0xFF, 0xFF, 0x80, 0x00,
+        0x12, 0x10, 0x13,
+        0x00, 0x0F, 0x00, 0x00,
+        0x0F,
+        0x03
+    };
+    bool decoded = decode_message(msg, sizeof(msg), &test_ctx);
+    const pool_heater_t *h = &test_pool_state.heaters[0];
+    TEST_ASSERT(decoded, "Viron 0x0F: should decode");
+    TEST_ASSERT(h->gas_heater_valid, "Viron 0x0F: gas_heater_valid");
+    TEST_ASSERT(h->status == HEATER_HEATING, "Viron 0x0F: status=HEATER_HEATING");
+    TEST_ASSERT(h->burner_state == BURNER_ALIGHT, "Viron 0x0F: burner alight");
+}
+
 // ======================================================
 // Genus Heater Status Tests (CMD 0x12)
 //
@@ -1461,6 +1501,7 @@ int main(void)
     test_heater2_setpoint_registers();
     test_heater_device_setpoint_broadcast();
     test_heater_device_setpoint_unplumbed_circuit();
+    test_viron_heater_setpoint_broadcast();
     test_heater_device_setpoint_two_heaters();
     test_decode_temp_reading();
     test_decode_heater_on();
@@ -1508,6 +1549,7 @@ int main(void)
     test_gas_heater_ici_cooldown();
     test_gas_heater_ici_locked_out();
     test_gas_heater_hinrg_heating();
+    test_gas_heater_viron_heating();
 
     // Genus heater status tests (CMD 0x12)
     printf("\n--- Genus Heater Status Tests ---\n");

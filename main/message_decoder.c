@@ -121,6 +121,8 @@ static const char *MSG_TYPE_CONTROLLER_UNKNOWN2B =  "02 00 62 00 50 80 00 2B 0E 
 // 70 Genus Heater (Active i25 Evo)
 static const char *MSG_TYPE_GENUS_HEATER_STATUS =       "02 00 70 FF FF 80 00 12 10 12";
 static const char *MSG_TYPE_GENUS_HEATER_TEMP_SETTING = "02 00 70 FF FF 80 00 17 0E 15";
+static const char *MSG_TYPE_VIRON_HEATER_STATUS =       "02 00 71 FF FF 80 00 12 10 13";
+static const char *MSG_TYPE_VIRON_HEATER_TEMP_SETTING = "02 00 71 FF FF 80 00 17 0E 16";
 
 // 72 AstralPool HiNRG Gas Heater
 // CMD 0x16 (temperature reading) is handled by the source-agnostic handler above.
@@ -1227,7 +1229,7 @@ static bool handle_genus_heater_status(
 }
 
 /**
- * Handler: Genus / HiNRG Gas Heater / ICI Gas Heater setpoints
+ * Handler: Genus / Viron / HiNRG Gas Heater / ICI Gas Heater setpoints
  * Pattern (`0x0070`): `02 00 70 FF FF 80 00 17 0E 15` (Genus Heater)
  * Pattern (`0x0072`): `02 00 72 FF FF 80 00 17 0E 17` (HiNRG Gas Heater)
  * Pattern (`0x0074`): `02 00 74 FF FF 80 00 17 0E 19` (ICI Gas Heater)
@@ -4155,13 +4157,15 @@ static bool dispatch_message(
 
     // Heater temperature setting messages
     if (match_pattern(data, len, MSG_TYPE_GENUS_HEATER_TEMP_SETTING) ||
+        match_pattern(data, len, MSG_TYPE_VIRON_HEATER_TEMP_SETTING) ||
         match_pattern(data, len, MSG_TYPE_HINRG_HEATER_TEMP_SETTING) || 
         match_pattern(data, len, MSG_TYPE_ICI_HEATER_TEMP_SETTING)) {
         return handle_heater_temp_setting(data, len, payload, payload_len, addr_info, ctx);
     }
 
-    // Gas heater device status (CMD 0x12) — HiNRG (0x0072) and ICI (0x0074)
-    if (match_pattern(data, len, MSG_TYPE_HINRG_HEATER_STATUS) ||
+    // Gas heater device status (CMD 0x12) — Viron (0x0071), HiNRG (0x0072), ICI (0x0074)
+    if (match_pattern(data, len, MSG_TYPE_VIRON_HEATER_STATUS) ||
+        match_pattern(data, len, MSG_TYPE_HINRG_HEATER_STATUS) ||
         match_pattern(data, len, MSG_TYPE_ICI_HEATER_STATUS)) {
         return handle_gas_heater_status(data, len, payload, payload_len, addr_info, ctx);
     }
