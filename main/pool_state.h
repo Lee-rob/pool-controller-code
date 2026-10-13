@@ -59,6 +59,7 @@ typedef enum {
     CHANNEL_TYPE_HEATER_POWER     = 0x11,
     CHANNEL_TYPE_CUSTOM_NAME      = 0x12,
     CHANNEL_TYPE_SECONDARY_HEATER = 0xFB,
+    CHANNEL_TYPE_SOLAR_CONTROLLER = 0xFC, // Dedicated temperature-controlled Solar
     CHANNEL_TYPE_HEATER           = 0xFD, // Channel is a heater (handled separately)
     CHANNEL_TYPE_LIGHT_ZONE       = 0xFE, // Channel is a lighting zone (handled separately)
 } channel_type_t;

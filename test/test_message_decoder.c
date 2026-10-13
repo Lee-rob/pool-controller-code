@@ -634,6 +634,32 @@ void test_channel_status_resets_pump_speed_when_filter_off(void)
     TEST_ASSERT(test_pool_state.pump_speed == 0, "pump_speed should be 0");
 }
 
+void test_decode_connect10_dedicated_solar_channel(void)
+{
+    init_test_context();
+    uint8_t msg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x0B, 0x25, 0x00,
+        0x08,
+        0x09, 0x01, 0x00,  // Ch1 Blower Auto inactive
+        0xFC, 0x00, 0x00,  // Ch2 dedicated Solar Off inactive
+        0x11, 0x01, 0x00,  // Ch3 Heater Power Auto inactive
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x01, 0x01, 0x01,  // Ch8 Filter Auto active
+        0x23, 0x03
+    };
+    bool decoded = decode_message(msg, sizeof(msg), &test_ctx);
+    TEST_ASSERT(decoded, "Connect 10 dedicated solar frame should decode");
+    TEST_ASSERT(test_pool_state.channels[1].type == CHANNEL_TYPE_SOLAR_CONTROLLER,
+                "Channel 2 type 0xFC should be dedicated Solar");
+    TEST_ASSERT(strcmp(get_channel_type_name(test_pool_state.channels[1].type), "Solar") == 0,
+                "Dedicated Solar should be labelled Solar");
+    TEST_ASSERT(test_pool_state.channels[1].state == 0 && !test_pool_state.channels[1].active,
+                "Dedicated Solar captured Off and inactive");
+}
+
 // An install with a plain single-speed pump never broadcasts CMD 0x3B, so
 // pump_telemetry_seen stays false. The Filter-inactive zeroing must not fire
 // there: marking speed/power valid would invent readings out of nothing and
@@ -1511,6 +1537,7 @@ int main(void)
     // Channel status tests
     printf("\n--- Channel Status Tests ---\n");
     test_decode_channel_status_all_off();
+    test_decode_connect10_dedicated_solar_channel();
     test_channel_status_resets_pump_speed_when_filter_off();
     test_channel_status_does_not_fabricate_pump_speed_without_telemetry();
     test_decode_channel_status_lights_active();

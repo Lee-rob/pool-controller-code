@@ -183,7 +183,9 @@ static void handle_channel_mode_command(int channel_id, const char *payload, int
     channel_type_t channel_type = CHANNEL_TYPE_UNUSED;
     uint8_t current_state;
     bool have_channel = get_channel_state((uint8_t)channel_id, &current_state, &channel_type);
-    if (have_channel && (channel_type == CHANNEL_TYPE_SOLAR || channel_type == CHANNEL_TYPE_BLOWER)) {
+    if (have_channel && (channel_type == CHANNEL_TYPE_SOLAR ||
+                         channel_type == CHANNEL_TYPE_SOLAR_CONTROLLER ||
+                         channel_type == CHANNEL_TYPE_BLOWER)) {
         if (state > 2) {
             ESP_LOGE(TAG, "Channel %d only supports Off/Auto/On", channel_id);
             return;

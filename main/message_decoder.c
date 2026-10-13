@@ -205,6 +205,7 @@ static const channel_type_entry_t CHANNEL_TYPE_TABLE[] = {
     {CHANNEL_TYPE_HEATER_POWER,     "Heater Power"},
     {CHANNEL_TYPE_CUSTOM_NAME,      "Custom Name"},
     {CHANNEL_TYPE_SECONDARY_HEATER, "Secondary Heater"},
+    {CHANNEL_TYPE_SOLAR_CONTROLLER, "Solar"},
     {CHANNEL_TYPE_HEATER,           "Heater"},
     {CHANNEL_TYPE_LIGHT_ZONE,       "Light Zone"},
 };

@@ -439,6 +439,7 @@ void mqtt_publish_channel(const pool_state_t *current_state, uint8_t channel_id)
     // losing the select altogether when it is re-typed.
     bool pump_mode_select = (channel->type == CHANNEL_TYPE_FILTER);
     bool simple_mode_select = (channel->type == CHANNEL_TYPE_SOLAR ||
+                               channel->type == CHANNEL_TYPE_SOLAR_CONTROLLER ||
                                channel->type == CHANNEL_TYPE_BLOWER);
     bool mode_select = pump_mode_select || simple_mode_select;
     filter_pump_type_t filter_pump_type = filter_pump_type_get();
