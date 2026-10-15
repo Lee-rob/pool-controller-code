@@ -580,6 +580,8 @@ static bool handle_valve_state(const uint8_t *data, int len, const uint8_t *payl
 static bool handle_touchscreen_unknown3(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_heater1_state(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_heater2_state(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
+static bool handle_chlor_unknown_countdown(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
+static bool handle_chlor_unknown_value(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 
 /**
  * Register message dispatch table
@@ -638,6 +640,11 @@ static const register_handler_t REGISTER_HANDLERS[] = {
 
     // Heater 2 setpoints (slot 0x00, registers 0xEA=Pool, 0xEB=Spa)
     {REG_ID_HEATER2_POOL_SETPOINT, REG_ID_HEATER2_SPA_SETPOINT, 0x00, handle_temp_setpoint,          "Heater 2 Setpoint"},
+
+    // Viron Chlorinator unknowns (slot 0x0B, registers 0xE9/0xEA) — meaning
+    // unknown; log-only and always recorded as undocumented for research
+    {REG_ID_CHLOR_UNKNOWN_COUNTDOWN, REG_ID_CHLOR_UNKNOWN_COUNTDOWN, 0x0B, handle_chlor_unknown_countdown, "Unknown Countdown"},
+    {REG_ID_CHLOR_UNKNOWN_VALUE,     REG_ID_CHLOR_UNKNOWN_VALUE,     0x0B, handle_chlor_unknown_value,     "Unknown Value"},
 
     {REG_ID_MULTICOLOR_LIGHT_TYPE, REG_ID_MULTICOLOR_LIGHT_TYPE, 0x01, handle_multicolor_light_type, "Multicolor Light Type"},
 
@@ -966,6 +973,49 @@ static bool handle_heater2_state(
         mqtt_publish_heater(&snapshot, 1);
     }
 
+    return true;
+}
+
+/**
+ * Handler: Viron Chlorinator unknown countdown
+ * Register 0xE9, Slot 0x0B. 2-byte little-endian countdown in 1/5 s units
+ * (300 = 1 minute) + 2 bytes only ever seen as 00 00. What it counts down to
+ * is unknown, so it is log-only and every frame is recorded as undocumented.
+ */
+static bool handle_chlor_unknown_countdown(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 4) return false;
+
+    uint16_t units = (uint16_t)(payload[2] | (payload[3] << 8));
+    ESP_LOGI(TAG, "%s Unknown countdown - %u (%u min %u s)", addr_info,
+             units, units / 300, (units % 300) / 5);
+
+    record_undocumented(data, len);
+    return true;
+}
+
+/**
+ * Handler: Viron Chlorinator unknown value
+ * Register 0xEA, Slot 0x0B. 2-byte little-endian value + 2 bytes only ever
+ * seen as 00 00. Static per install (4500 and 9000 observed); meaning
+ * unknown, so it is log-only and every frame is recorded as undocumented.
+ */
+static bool handle_chlor_unknown_value(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 4) return false;
+
+    uint16_t value = (uint16_t)(payload[2] | (payload[3] << 8));
+    ESP_LOGI(TAG, "%s Unknown value - %u", addr_info, value);
+
+    record_undocumented(data, len);
     return true;
 }
 

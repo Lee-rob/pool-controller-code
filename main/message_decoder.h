@@ -188,6 +188,8 @@ typedef enum {
     REG_ID_HEATER2_ONOFF         = 0xE9,  // Heater 2 on/off state — tentative, see PROTOCOL.md Appendix A
     REG_ID_HEATER2_POOL_SETPOINT = 0xEA,  // Heater 2 pool setpoint
     REG_ID_HEATER2_SPA_SETPOINT  = 0xEB,  // Heater 2 spa setpoint — tentative, see PROTOCOL.md Appendix A
+    REG_ID_CHLOR_UNKNOWN_COUNTDOWN = 0xE9,  // Unknown countdown (slot 0x0B, Viron Chlorinator) — tentative, see PROTOCOL.md Appendix A
+    REG_ID_CHLOR_UNKNOWN_VALUE     = 0xEA,  // Unknown static value (slot 0x0B, Viron Chlorinator) — tentative, see PROTOCOL.md Appendix A
     REG_ID_MULTICOLOR_LIGHT_TYPE = 0xF0,  // System-wide multicolor light type selection (slot 0x01): MULTICOLOR_LIGHT_TYPE_*
     REG_ID_CHANNEL_COUNT         = 0xF4,  // Total number of channels
 
