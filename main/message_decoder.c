@@ -112,7 +112,8 @@ static const char *MSG_TYPE_VALVE_ACTUATOR_CMD =    "02 00 50 00 7F 80 00 41 0E 
 // Water temperature reading (CMD 0x16) is dispatched source-agnostically in
 // dispatch_message() — see PROTOCOL.md command `0x16`. Observed from the
 // Connect 8/10 Controller (0x0062, LEN 0x0E, 2-byte payload temp1+temp2),
-// the Genus Heater family (0x0070/0x0072, LEN 0x0D, 1-byte payload temp1 only),
+// the Genus/Viron Heater family (0x0070/0x0071/0x0072, LEN 0x0D,
+// 1-byte payload temp1 only),
 // and the ICI Gas Heater (0x0074, LEN 0x0D, 1-byte payload temp1 only).
 
 // 62 Connect 8/10 Controller
@@ -120,6 +121,10 @@ static const char *MSG_TYPE_CONTROLLER_UNKNOWN2B =  "02 00 62 00 50 80 00 2B 0E 
 
 // 70 Genus Heater (Active i25 Evo)
 static const char *MSG_TYPE_GENUS_HEATER_TEMP_SETTING = "02 00 70 FF FF 80 00 17 0E 15";
+
+// 71 AstralPool Viron Gas Heater
+// CMD 0x16 (temperature reading) is handled by the source-agnostic handler above.
+static const char *MSG_TYPE_VIRON_HEATER_TEMP_SETTING = "02 00 71 FF FF 80 00 17 0E 16";
 
 // 72 AstralPool HiNRG Gas Heater
 // CMD 0x16 (temperature reading) is handled by the source-agnostic handler above.
@@ -1043,8 +1048,8 @@ static bool handle_channel_count(
 }
 
 /**
- * Handler: Gas heater device status (CMD 0x12, source 0x0072 HiNRG or
- * 0x0074 ICI)
+ * Handler: Gas heater device status (CMD 0x12, source 0x0071 Viron,
+ * 0x0072 HiNRG or 0x0074 ICI)
  *
  * Same four-byte payload shape from either gas heater; addr_info already names
  * the source device. All bytes are 0x00 when the heater is idle (modulation=0).
@@ -1225,8 +1230,9 @@ static bool handle_genus_heater_status(
 }
 
 /**
- * Handler: Genus / HiNRG Gas Heater / ICI Gas Heater setpoints
+ * Handler: Genus / Viron / HiNRG Gas Heater / ICI Gas Heater setpoints
  * Pattern (`0x0070`): `02 00 70 FF FF 80 00 17 0E 15` (Genus Heater)
+ * Pattern (`0x0071`): `02 00 71 FF FF 80 00 17 0E 16` (Viron Gas Heater)
  * Pattern (`0x0072`): `02 00 72 FF FF 80 00 17 0E 17` (HiNRG Gas Heater)
  * Pattern (`0x0074`): `02 00 74 FF FF 80 00 17 0E 19` (ICI Gas Heater)
  *
@@ -1309,7 +1315,8 @@ static bool handle_heater_temp_setting(
  * Handler: Connect 8/10 Controller device status (CMD 0x12, source 0x0062)
  *
  * The controller's own view of Heater 1. On installs carrying a dedicated
- * heater device (Genus 0x0070, HiNRG 0x0072, ICI 0x0074) that device's CMD 0x12
+ * heater device (Genus 0x0070, Viron 0x0071, HiNRG 0x0072, ICI 0x0074) that
+ * device's CMD 0x12
  * status is authoritative and this frame's heater bit is ignored: it has been
  * observed stuck at 0 for the whole time an external gas heater was running
  * (payload `04 00 00`), which pinned the Home Assistant switch to OFF. Service
@@ -4085,6 +4092,7 @@ static bool handle_device_status(
             return handle_heater(data, len, payload, payload_len, addr_info, ctx);
         case 0x0070:  // Genus Heater
             return handle_genus_heater_status(data, len, payload, payload_len, addr_info, ctx);
+        case 0x0071:  // Viron Gas Heater
         case 0x0072:  // HiNRG Gas Heater
         case 0x0074:  // ICI Gas Heater
             return handle_gas_heater_status(data, len, payload, payload_len, addr_info, ctx);
@@ -4346,6 +4354,7 @@ static bool dispatch_message(
 
     // Heater temperature setting messages
     if (match_pattern(data, len, MSG_TYPE_GENUS_HEATER_TEMP_SETTING) ||
+        match_pattern(data, len, MSG_TYPE_VIRON_HEATER_TEMP_SETTING) ||
         match_pattern(data, len, MSG_TYPE_HINRG_HEATER_TEMP_SETTING) || 
         match_pattern(data, len, MSG_TYPE_ICI_HEATER_TEMP_SETTING)) {
         return handle_heater_temp_setting(data, len, payload, payload_len, addr_info, ctx);
