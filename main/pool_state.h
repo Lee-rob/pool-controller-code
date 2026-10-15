@@ -216,6 +216,11 @@ typedef struct {
 #define MULTICOLOR_LIGHT_TYPE_DELTA 0x01
 #define MULTICOLOR_LIGHT_TYPE_NONE  0xFF  // no multicolor light configured
 
+// Heater 1 type (register 0xC8, slot 0x00)
+#define HEATER1_TYPE_NONE             0x00
+#define HEATER1_TYPE_GENUS            0x01  // Genus (Gas) - bus-controlled heater
+#define HEATER1_TYPE_CONNECT_INBUILT  0x03  // Power switched through a controller channel
+
 typedef struct {
     char name[32];        // Label from register 0x31+index, slot 0x03
     bool enabled;         // Enable flag from register 0x21+index, slot 0x03
@@ -372,6 +377,19 @@ typedef struct {
     // Last update timestamp (milliseconds since boot)
     uint32_t last_update_ms;
 } pool_state_t;
+
+// Whether heater slot `index` (0 = Heater 1, 1 = Heater 2) is configured, from
+// the Touchscreen's heater configuration registers (0xC8, 0xCC). Sets *known
+// to false, and returns false, until that register has been received.
+static inline bool heater_configured(const pool_state_t *state, int index, bool *known)
+{
+    if (index == 0) {
+        *known = state->heater1_type_valid;
+        return state->heater1_type_valid && state->heater1_type != HEATER1_TYPE_NONE;
+    }
+    *known = state->heater2_configured_valid;
+    return state->heater2_configured_valid && state->heater2_configured;
+}
 
 // Global pool state (defined in main.c)
 extern pool_state_t s_pool_state;

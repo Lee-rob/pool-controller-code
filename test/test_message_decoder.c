@@ -494,6 +494,65 @@ void test_heater_config_registers(void)
 }
 
 /**
+ * Test: heater_configured() reports each slot from the heater configuration
+ * registers, and stays unknown until its register has arrived.
+ */
+void test_heater_configured_helper(void)
+{
+    init_test_context();
+    bool known = true;
+
+    TEST_ASSERT(!heater_configured(&test_pool_state, 0, &known) && !known,
+                "Heater 1 should be unknown before 0xC8 arrives");
+    TEST_ASSERT(!heater_configured(&test_pool_state, 1, &known) && !known,
+                "Heater 2 should be unknown before 0xCC arrives");
+
+    // 0xC8 = 0x00 (no Heater 1), 0xCC = 0x00 (no second heater)
+    uint8_t c8_none[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xC8, 0x00, 0x00,
+        0xC8,
+        0x03
+    };
+    uint8_t cc_none[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xCC, 0x00, 0x00,
+        0xCC,
+        0x03
+    };
+    decode_message(c8_none, sizeof(c8_none), &test_ctx);
+    decode_message(cc_none, sizeof(cc_none), &test_ctx);
+    TEST_ASSERT(!heater_configured(&test_pool_state, 0, &known) && known,
+                "Heater 1 should be known and not configured with 0xC8 = 0x00");
+    TEST_ASSERT(!heater_configured(&test_pool_state, 1, &known) && known,
+                "Heater 2 should be known and not configured with 0xCC = 0x00");
+
+    // 0xC8 = 0x01 (Genus), 0xCC = 0x01 (second heater configured)
+    uint8_t c8_genus[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xC8, 0x00, 0x01,
+        0xC9,
+        0x03
+    };
+    uint8_t cc_yes[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xCC, 0x00, 0x01,
+        0xCD,
+        0x03
+    };
+    decode_message(c8_genus, sizeof(c8_genus), &test_ctx);
+    decode_message(cc_yes, sizeof(cc_yes), &test_ctx);
+    TEST_ASSERT(heater_configured(&test_pool_state, 0, &known) && known,
+                "Heater 1 should be configured with 0xC8 = 0x01 (Genus)");
+    TEST_ASSERT(heater_configured(&test_pool_state, 1, &known) && known,
+                "Heater 2 should be configured with 0xCC = 0x01");
+}
+
+/**
  * Test: Heater status message (ON)
  * Real OFF message: 02 00 62 FF FF 80 00 12 0F 03 00 00 08 08 03
  * Byte[8]=0x0F (length=15), Byte[9]=0x03 (header checksum = sum(bytes 0-8) & 0xFF)
@@ -1890,6 +1949,7 @@ int main(void)
     test_heater_device_setpoint_heater2_removed();
     test_heater_device_setpoint_heater2_configured();
     test_heater_config_registers();
+    test_heater_configured_helper();
     test_decode_temp_reading();
     test_decode_heater_on();
     test_decode_heater_off();

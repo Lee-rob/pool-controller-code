@@ -127,11 +127,6 @@ const uint8_t* multicolor_light_color_codes(uint8_t light_type, int *count);
 #define CHANNEL_CATEGORY_HEATER_POWER   0x03  // Controlled Heater Power
 #define CHANNEL_CATEGORY_SECONDARY_HEATER 0x05  // Secondary Heater (0x04 not observed)
 
-// Heater 1 type codes (register 0xC8, slot 0x00)
-#define HEATER1_TYPE_NONE             0x00
-#define HEATER1_TYPE_GENUS            0x01  // Genus (Gas) - bus-controlled heater
-#define HEATER1_TYPE_CONNECT_INBUILT  0x03  // Power switched through a controller channel
-
 // Register IDs used in CMD 0x38 (register data) and CMD 0x3A (register write).
 // See PROTOCOL.md Appendix A for the full dispatch table.
 typedef enum {
