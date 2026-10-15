@@ -229,11 +229,11 @@ Click any CMD in the first column to jump to the full section in [Commands](#com
 | [`0x0D`](#0x0d--active-channels-bitmask-)                      | Active Channels Bitmask             | `0x0050` → `0x006F` Internal Channels                                  | Unicast                                                                                     | Yes                     |
 | [`0x0F`](#0x0f--set-channel-state-)                | Set Channel State          | `0x0081`, `0x0084`, `0x0062`, `0xAC1D` → `0x0050`                                                  | `{channel, state}` — sets a **pump-driven** channel to a named state directly (Off/Auto/On/Low/Med/High). The Connect 8/10 sends it for its Cleaning button | Yes                     |
 | [`0x10`](#0x10--channel-toggle-command-)                      | Channel Toggle Command              | `0x00F0`, `0x0062` → Broadcast                                         | Same 1-byte channel-index payload from either source; dispatched on CMD byte alone         | Yes (unified handler)   |
-| [`0x12`](#0x12--device-status-️)                               | Device Status                       | `0x0050`, `0x0062`, `0x0070`, `0x0074`, `0x0081`, `0x0084`, `0x0090`, `0x00F0` → Broadcast | Payload layout differs per source; dispatched on CMD byte, routed by source address         | Yes (per-source)        |
+| [`0x12`](#0x12--device-status-️)                               | Device Status                       | `0x0050`, `0x0062`, `0x0070`–`0x0072`, `0x0074`, `0x0081`, `0x0084`, `0x0090`, `0x00F0` → Broadcast | Payload layout differs per source; dispatched on CMD byte, routed by source address         | Yes (per-source)        |
 | [`0x14`](#0x14--mode-spapool-)                                 | Mode (Spa/Pool)                     | `0x0050` → Broadcast                                                   |                                                                                             | Yes                     |
 | [`0x15`](#0x15--mode-set-command-spapool-)                     | Mode Set Command (Spa/Pool)         | `0x0050`, `0x0062`, `0x0074` → Broadcast                               | Two forms by LEN: `0x0D` sets the mode, same encoding as the `0x14` status (Spa=`0x00`, Pool=`0x01`); `0x0B` (frame with no data, FRAME_TYPE `00 00`, from the Connect 8/10 Pool/Spa button and the ICI Gas Heater) toggles it; dispatched on CMD byte alone | Yes (both forms)        |
-| [`0x16`](#0x16--water-temperature-reading-)                    | Water Temperature Reading           | `0x0062` (LEN `0x0E`), `0x0070`/`0x0072`/`0x0074` (LEN `0x0D`) → Broadcast | Payload length differs by source: LEN `0x0E` = `{temp1, temp2}`, LEN `0x0D` = `{temp1}`; dispatched on CMD byte alone | Yes (unified handler)   |
-| [`0x17`](#0x17--temperature-settings-)                         | Temperature Settings                | `0x0050` (LEN `0x10`), `0x0070`/`0x0074` (LEN `0x0E`) → Broadcast | Source-dependent payload layout                                                             | Yes (per-source)        |
+| [`0x16`](#0x16--water-temperature-reading-)                    | Water Temperature Reading           | `0x0062` (LEN `0x0E`), `0x0070`/`0x0071`/`0x0072`/`0x0074` (LEN `0x0D`) → Broadcast | Payload length differs by source: LEN `0x0E` = `{temp1, temp2}`, LEN `0x0D` = `{temp1}`; dispatched on CMD byte alone | Yes (unified handler)   |
+| [`0x17`](#0x17--temperature-settings-)                         | Temperature Settings                | `0x0050` (LEN `0x10`), `0x0070`/`0x0071`/`0x0072`/`0x0074` (LEN `0x0E`) → Broadcast | Source-dependent payload layout                                                             | Yes (per-source)        |
 | [`0x18`](#0x18--pump-speed-command-)                           | Pump Speed Command                  | `0x0050`, `0x0084` → `0x00A0` Viron XT Pump                            | Set pump speed (low/med/high)                                                       | Yes                     |
 | [`0x1A`](#0x1a--pre-valve-command-frame-️)                             | Pre-Valve-Command Frame             | `0x0050` → `0x007F` Internal Control                                   | Unicast frame with no data (LEN `0x0B`, FRAME_TYPE `00 00`) sent immediately before a `0x41` valve command; purpose unknown | Yes (log-only)          |
 | [`0x1B`](#0x1b--pump-button-activity-)                         | Pump Button Activity                | `0x00A0` Viron XT Pump → Broadcast                                      | Speed button pressed on pump (Low/Med/High)                                                  | Yes (log-only)          |
@@ -679,7 +679,7 @@ Status broadcast emitted by multiple devices, each sending its own alongside its
 | `0x0050` Touchscreen            | `0x0E` | 2 bytes — `{flags, 00}`; `01`/`05`/`09` observed in byte 10 | ⚠️     | `handle_touchscreen_status`   |
 | `0x0062` Connect 8/10 Controller| `0x0F` | 3 bytes — unknown + heater state/service mode + unknown | ⚠️     | `handle_heater`               |
 | `0x0070` Genus Heater           | `0x10` | 4 bytes — `{00, status, 00, 00}`         | ⚠️     | `handle_genus_heater_status`  |
-| `0x0072` HiNRG / `0x0074` ICI Gas Heater | `0x10` | 4 bytes — `{00, status, 00, 00}` | ✅     | `handle_gas_heater_status`    |
+| `0x0071` Viron / `0x0072` HiNRG / `0x0074` ICI Gas Heater | `0x10` | 4 bytes — `{00, status, 00, 00}` | ✅     | `handle_gas_heater_status`    |
 | `0x0081` VX 11S v3 Salt Chlorinator | `0x0D` | 2 bytes — always `00 00` observed   | ⚠️     | **No (doc only)**             |
 | `0x0084` Viron / `0x0090` RolaChem Chlorinator | `0x0D` | 1 byte — operational mode | ⚠️     | `handle_chlor_status`         |
 | `0x00F0` Internet Gateway       | `0x0F` | 3 bytes — `{major, minor, checksum}`     | ✅     | `handle_gateway_status`       |
@@ -793,7 +793,7 @@ Notes:
 
 ---
 
-#### Gas Heaters: HiNRG (`0x0072`) & ICI (`0x0074`) ✅
+#### Gas Heaters: Viron (`0x0071`), HiNRG (`0x0072`) & ICI (`0x0074`) ✅
 
 Pattern: `02 00 74 FF FF 80 00 12 10 16`
 
@@ -1034,6 +1034,7 @@ Current water temperature broadcast by the device that measures it. There are tw
 |---------------------------------|--------|-------------------------------|--------|
 | `0x0062` Connect 8/10 Controller| `0x0E` | 2 bytes — `{temp1, temp2}`    | ✅ |
 | `0x0070` Genus Heater           | `0x0D` | 1 byte  — `{temp1}`           | ✅ |
+| `0x0071` Viron Gas Heater       | `0x0D` | 1 byte  — `{temp1}`           | ✅ |
 | `0x0072` HiNRG Gas Heater       | `0x0D` | 1 byte  — `{temp1}`           | ✅ |
 | `0x0074` ICI Gas Heater         | `0x0D` | 1 byte  — `{temp1}`           | ✅ |
 
@@ -1063,11 +1064,12 @@ The touchscreen mirrors this reading into register `0x30`/slot `0x01` (same 2-by
 
 ---
 
-#### Genus Heater (`0x0070`) / HiNRG Gas Heater (`0x0072`) / ICI Gas Heater (`0x0074`) ✅
+#### Genus Heater (`0x0070`) / Viron Gas Heater (`0x0071`) / HiNRG Gas Heater (`0x0072`) / ICI Gas Heater (`0x0074`) ✅
 
 When an Active i25 Evo (Genus) / HiNRG Gas Heater or ICI Gas Heater is fitted it broadcasts its own current water-temperature reading on the same CMD but with a shorter LENGTH (`0x0D`) and only one data byte.
 
 Pattern (`0x0070`): `02 00 70 FF FF 80 00 16 0D 13`
+Pattern (`0x0071`): `02 00 71 FF FF 80 00 16 0D 14`
 Pattern (`0x0072`): `02 00 72 FF FF 80 00 16 0D 15`
 Pattern (`0x0074`): `02 00 74 FF FF 80 00 16 0D 17`
 
@@ -1091,7 +1093,7 @@ Handled by the unified `handle_temp_reading()` via the LEN `0x0D` path.
 
 ### 0x17 — Temperature Settings ✅
 
-Setpoint broadcast. CMD `0x17` is shared across two sources with different payload layouts: the Touchscreen (`0x0050`) emits spa/pool setpoints in both °C and °F, while the heater devices (`0x0070`/`0x0072`/`0x0074`) emit their spa/pool setpoints in °C only.
+Setpoint broadcast. CMD `0x17` is shared across two sources with different payload layouts: the Touchscreen (`0x0050`) emits spa/pool setpoints in both °C and °F, while the heater devices (`0x0070`/`0x0071`/`0x0072`/`0x0074`) emit their spa/pool setpoints in °C only.
 
 **Source variants:**
 
@@ -1099,6 +1101,7 @@ Setpoint broadcast. CMD `0x17` is shared across two sources with different paylo
 |-----------------------|--------|----------------------------------------|--------|-------------------------------|
 | `0x0050` Touchscreen  | `0x10` | 4 bytes — spa/pool setpoint °C + spa/pool setpoint °F    | ✅     | `handle_temp_setting`         |
 | `0x0070` Genus Heater | `0x0E` | 2 bytes — Spa setpoint °C, Pool setpoint °C | ✅     | `handle_heater_temp_setting`      |
+| `0x0071` Viron Gas Heater | `0x0E` | 2 bytes — Spa setpoint °C, Pool setpoint °C | ✅     | `handle_heater_temp_setting`      |
 | `0x0072` HiNRG Heater | `0x0E` | 2 bytes — Spa setpoint °C, Pool setpoint °C | ✅     | `handle_heater_temp_setting`      |
 | `0x0074` ICI Gas Heater | `0x0E` | 2 bytes — Spa setpoint °C, Pool setpoint °C | ✅     | `handle_heater_temp_setting`      |
 
@@ -1130,11 +1133,12 @@ Temperature scale (Celsius vs Fahrenheit) is set by [0x26 Configuration](#0x26--
 
 ---
 
-#### Genus Heater (`0x0070`) / HiNRG Gas Heater (`0x0072`) / ICI Gas Heater (`0x0074`) ✅
+#### Genus Heater (`0x0070`) / Viron Gas Heater (`0x0071`) / HiNRG Gas Heater (`0x0072`) / ICI Gas Heater (`0x0074`) ✅
 
 When an Active i25 Evo (Genus) / HiNRG Gas Heater or ICI Gas Heater is fitted it broadcasts its own setpoints using the same CMD but a shorter LENGTH and a different payload — both heater setpoints in a single frame, °C only.
 
 Pattern (`0x0070`): `02 00 70 FF FF 80 00 17 0E 15` (Genus Heater)
+Pattern (`0x0071`): `02 00 71 FF FF 80 00 17 0E 16` (Viron Gas Heater)
 Pattern (`0x0072`): `02 00 72 FF FF 80 00 17 0E 17` (HiNRG Gas Heater)
 Pattern (`0x0074`): `02 00 74 FF FF 80 00 17 0E 19` (ICI Gas Heater)
 
