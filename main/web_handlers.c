@@ -807,6 +807,7 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     for (int i = 0; i < MAX_CHANNELS; i++) {
         if (!state.channels[i].configured ||
             state.channels[i].type == CHANNEL_TYPE_HEATER ||
+            state.channels[i].type == CHANNEL_TYPE_SECONDARY_HEATER ||
             state.channels[i].type == CHANNEL_TYPE_LIGHT_ZONE) {
             continue;
         }

@@ -327,7 +327,9 @@ void mqtt_publish_channel(const pool_state_t *current_state, uint8_t channel_id)
     // entities from mqtt_publish_heater*/mqtt_publish_light — publishing them
     // again here would be redundant (and the toggle command isn't the right
     // way to control them anyway). They still get power/energy tracking below.
-    bool include_state_entities = (channel->type != CHANNEL_TYPE_HEATER &&
+    bool is_heater_channel = (channel->type == CHANNEL_TYPE_HEATER ||
+                              channel->type == CHANNEL_TYPE_SECONDARY_HEATER);
+    bool include_state_entities = (!is_heater_channel &&
                                     channel->type != CHANNEL_TYPE_LIGHT_ZONE);
 
     // Use channel name if set, otherwise fall back to type name. Light zone
@@ -342,7 +344,6 @@ void mqtt_publish_channel(const pool_state_t *current_state, uint8_t channel_id)
     // channels to get its lighting[] index.
     const char *type_name = get_channel_type_name(channel->type);
     const char *display_name = type_name;
-    char heater_name_buf[16];  // only used in the CHANNEL_TYPE_HEATER branch below
     if (channel->type == CHANNEL_TYPE_LIGHT_ZONE) {
         int zone_rank = 0;
         for (int i = 0; i < channel_id; i++) {
@@ -358,23 +359,14 @@ void mqtt_publish_channel(const pool_state_t *current_state, uint8_t channel_id)
                 display_name = LIGHT_ZONE_NAME_TABLE[light->name_id];
             }
         }
-    } else if (channel->type == CHANNEL_TYPE_HEATER) {
+    } else if (is_heater_channel) {
         // Heaters have no per-unit custom name (pool_heater_t carries no
         // name field) — mqtt_publish_heater/publish_heater_discovery always
-        // refer to them generically as "Heater N" by index. Match that here:
-        // rank this channel among heater-typed channels (same configuration-
-        // order reasoning as light zones above) to get its heater number.
-        int heater_rank = 0;
-        for (int i = 0; i < channel_id; i++) {
-            if (current_state->channels[i].configured &&
-                current_state->channels[i].type == CHANNEL_TYPE_HEATER) {
-                heater_rank++;
-            }
-        }
-        if (heater_rank >= 1 && heater_rank <= MAX_HEATERS) {
-            snprintf(heater_name_buf, sizeof(heater_name_buf), "Heater %d", heater_rank);
-            display_name = heater_name_buf;
-        }
+        // refer to them generically as "Heater N" by index. Match that here.
+        // The channel type names the heater: a Connect Inbuilt Heater 1 takes
+        // a Heater (0xFD) channel, and a second heater (only ever Connect
+        // Inbuilt) a Secondary Heater (0xFB) channel.
+        display_name = (channel->type == CHANNEL_TYPE_HEATER) ? "Heater 1" : "Heater 2";
     } else if (channel->name[0] != '\0') {
         display_name = channel->name;
     }

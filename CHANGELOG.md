@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CMD `0x12` Device Status is now dispatched on the CMD byte and routed to the right decoder by source address, instead of matching ten fixed per-device frames. Frames are no longer rejected for an unexpected length byte, as each decoder already checks the payload it reads. Unhandled `0x12` frames now log the command as "Device Status" rather than "Status/Other"
 - The HiNRG and ICI gas heater status decoder now flags a non-zero byte 10, 12 or 13 as undocumented, matching the Genus heater decoder; these bytes have only ever been seen as `0x00`
 ### Fixed
+- A second heater's power channel (Secondary Heater, `0xFB`) is now handled like the first heater's (Heater, `0xFD`). It was published to Home Assistant as an ordinary channel named "Secondary Heater", with state, toggle and Active entities, and listed with the ordinary channels on the web page. It now gets only its power settings, named "Heater 2". Heater channel names now come from the channel type (Heater = Heater 1, Secondary Heater = Heater 2) instead of counting heater channels. State entities already published for that channel stay on the broker until removed in Home Assistant
 - Dedicated Connect 10 Solar channels (`0xFC`) now report their selected
   Off/Auto/On mode and live output activity from CMD `0x2C`. Their CMD `0x0B`
   tuple remains `FC 00 00` even while Solar is running (and CMD `0x0D` omits
