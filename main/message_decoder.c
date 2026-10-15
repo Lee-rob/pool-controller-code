@@ -556,6 +556,7 @@ typedef struct {
 
 // Forward declarations for register handlers
 static bool handle_timer(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
+static bool handle_timer_configured(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_channel_type(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_channel_name(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_channel_state(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
@@ -591,6 +592,9 @@ static bool handle_chlor_unknown_value(const uint8_t *data, int len, const uint8
 static const register_handler_t REGISTER_HANDLERS[] = {
     // Timers (slot 0x04, registers 0x08-0x17 = timers 1-16)
     {REG_ID_TIMER_0,                 REG_ID_TIMER_15,                0x04, handle_timer,                 "Timer"},
+
+    // Timer configured flags (slot 0x03, registers 0xE8-0xF7 = timers 1-16)
+    {REG_ID_TIMER_CONFIGURED_0,      REG_ID_TIMER_CONFIGURED_15,     0x03, handle_timer_configured,      "Timer Configured"},
 
     // Channel configuration
     {REG_ID_CHANNEL_TYPE_0,          REG_ID_CHANNEL_TYPE_7,          0x02, handle_channel_type,          "Channel Type"},
@@ -3534,6 +3538,35 @@ static bool handle_valve_label(
     if (ctx->enable_mqtt) {
         mqtt_publish_valve(&state_snapshot, zone_num);
     }
+
+    return true;
+}
+
+/**
+ * Handler: Timer configured flag
+ * Register range: 0xE8-0xF7, Slot: 0x03 (0x01 = timer configured, 0x00 = not).
+ * Log-only — the timer's own schedule registers (0x08-0x17, slot 0x04) are what
+ * update pool_state->timers[].
+ */
+static bool handle_timer_configured(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 3) return false;
+
+    uint8_t reg_id = payload[0];
+    uint8_t configured = payload[2];
+    uint8_t timer_num = reg_id - REG_ID_TIMER_CONFIGURED_0 + 1;
+
+    if (configured >= 0x02) {
+        ESP_LOGW(TAG, "%s Timer configured out of expected range 0x00-0x01: 0x%02X", addr_info, configured);
+        record_undocumented(data, len);
+    }
+
+    ESP_LOGI(TAG, "%s Timer %d configured - %s", addr_info,
+             timer_num, configured ? "Yes" : "No");
 
     return true;
 }

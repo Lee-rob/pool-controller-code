@@ -1,0 +1,22 @@
+# Timers: the schedule registers (0x08-0x17, slot 0x04) and their
+# configured flags (0xE8-0xF7, slot 0x03), from zagnuts.
+#
+# Timer 1 is configured (09:30-11:30 every day), then disabled at the
+# Touchscreen. Disabling clears both the schedule and the configured flag.
+
+
+# Timer 1 configured: schedule and flag, as the Touchscreen reports them
+I (02:41:12.510) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 13 1B 08 04 09 1E 0B 1E 7F DB 03
+I (02:41:12.510) MSG_DECODER: [Touch Screen -> Broadcast] Timer 1 - start=09:30 stop=11:30 days=0x7F [MTWTFSS]
+I (06:11:31.584) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E8 03 01 EC 03
+I (06:11:31.584) MSG_DECODER: [Touch Screen -> Broadcast] Timer 1 configured - Yes
+
+# Timer 2 configured flag, from the Touchscreen's periodic dump
+I (02:44:04.599) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E9 03 01 ED 03
+I (02:44:04.599) MSG_DECODER: [Touch Screen -> Broadcast] Timer 2 configured - Yes
+
+# Timer 1 disabled at the Touchscreen: flag and schedule read back cleared
+I (06:13:19.004) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E8 03 00 EB 03
+I (06:13:19.004) MSG_DECODER: [Touch Screen -> Broadcast] Timer 1 configured - No
+I (06:14:23.904) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 13 1B 08 04 00 00 00 00 00 0C 03
+I (06:14:23.904) MSG_DECODER: [Touch Screen -> Broadcast] Timer 1 - not configured

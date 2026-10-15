@@ -181,6 +181,9 @@ typedef enum {
     REG_ID_LIGHT_ZONE_ACTIVE_0     = 0xE0,  // Zone 0 active flag (0–7 → 0xE0–0xE7, slot 0x01)
     REG_ID_LIGHT_ZONE_ACTIVE_7     = 0xE7,  // Zone 7 active (last)
 
+    REG_ID_TIMER_CONFIGURED_0      = 0xE8,  // Timer 0 configured flag (0–15 → 0xE8–0xF7, slot 0x03; 0xE8–0xEB shares range with the heater registers, slot 0x00)
+    REG_ID_TIMER_CONFIGURED_15     = 0xF7,  // Timer 15 configured (last)
+
     // Point registers
     REG_ID_HEATER1_ONOFF         = 0xE6,  // Heater 1 on/off state
     REG_ID_HEATER1_POOL_SETPOINT = 0xE7,  // Pool temperature setpoint (Heater 1)
