@@ -24,11 +24,10 @@ static SemaphoreHandle_t s_mutex = NULL;
 #define READBACK_DELAY_MS    1000
 // Pending read-backs / wake-ups waiting to be serviced by the task
 #define REQUEST_QUEUE_LEN    8
-// How many sweeps to ask for a heater setpoint before giving up on it. A slot
-// the heater configuration registers (0xC8, 0xCC) say is unconfigured is not
-// asked at all, but until they arrive an unconfigured slot is
-// indistinguishable from one that has not answered yet. A configured slot can
-// also go unanswered, e.g. a Genus heater selected with none on the bus.
+// How many sweeps to ask for a heater setpoint before giving up on it. Only a
+// slot the heater configuration registers (0xC8, 0xCC) say is configured is
+// asked, but it can still go unanswered, e.g. a Genus heater selected with
+// none on the bus.
 #define HEATER_SETPOINT_MAX_ATTEMPTS 5
 
 // A unit of work posted to the task. `rescan` requests a fresh check for
@@ -133,8 +132,19 @@ static void register_requester_task(void *arg)
             xSemaphoreGive(s_mutex);
         }
 
+        // Request the heater configuration registers (Heater 1 Type, Heater 2
+        // Configured) until they arrive, whether or not a Gateway is present:
+        // nothing about the heaters is assumed until they are known, and the
+        // Gateway's own polling of them can take several minutes.
+        if (!heater_config_known[0]) {
+            send_request(REG_ID_HEATER1_TYPE, 0x00, "heater 1 type");
+        }
+        if (!heater_config_known[1]) {
+            send_request(REG_ID_HEATER2_CONFIGURED, 0x00, "heater 2 configured");
+        }
+
         if (gateway_present) {
-            ESP_LOGI(TAG, "Internet Gateway present, no requests needed");
+            ESP_LOGI(TAG, "Internet Gateway present, no other requests needed");
         } else {
             // Request missing timers
             int missing_timers = 0;
@@ -195,15 +205,6 @@ static void register_requester_task(void *arg)
                 }
             }
 
-            // Request the heater configuration registers, which say which
-            // heater slots exist (Heater 1 Type, Heater 2 Configured)
-            if (!heater_config_known[0]) {
-                send_request(REG_ID_HEATER1_TYPE, 0x00, "heater 1 type");
-            }
-            if (!heater_config_known[1]) {
-                send_request(REG_ID_HEATER2_CONFIGURED, 0x00, "heater 2 configured");
-            }
-
             // Request missing heater setpoints. On an install with no Gateway
             // whose touchscreen does not broadcast CMD 0x17, nothing else ever
             // populates them — the only other request is the read-back after an
@@ -211,11 +212,12 @@ static void register_requester_task(void *arg)
             // changes it from Home Assistant. The CMD 0x38 response carries the
             // heater slot in its register ID, so whichever device answers
             // (touchscreen or the heater itself) lands in the right slot.
-            // A slot known to be unconfigured is skipped: the touchscreen
-            // never answers its setpoint registers.
+            // Only a slot the configuration registers say is configured is
+            // asked: the touchscreen never answers an unconfigured one, and
+            // until the registers arrive the next sweep will know.
             for (size_t i = 0; i < HEATER_SETPOINT_REG_COUNT; i++) {
                 int idx = HEATER_SETPOINT_REGS[i].heater_idx;
-                if (heater_config_known[idx] && !heater_is_configured[idx]) continue;
+                if (!heater_is_configured[idx]) continue;
                 bool have = HEATER_SETPOINT_REGS[i].is_pool
                                 ? heater_pool_setpoint_valid[idx]
                                 : heater_spa_setpoint_valid[idx];

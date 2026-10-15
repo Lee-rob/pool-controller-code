@@ -19,6 +19,7 @@ I (12:59:05.169) MSG_DECODER: [HiNRG Gas Heater -> Broadcast] Current temperatur
 02 00 72 FF FF 80 00 16 0D 15 0F 0F 03
 I (12:59:05.639) MSG_DECODER: RX MSG: 02 00 72 FF FF 80 00 17 0E 17 25 0A 2F 03
 I (12:59:05.639) MSG_DECODER: [HiNRG Gas Heater -> Broadcast] HiNRG Gas Heater setpoints - Spa=37°C, Pool=10°C
+D (12:59:05.639) MSG_DECODER: HiNRG Gas Heater setpoints not applied - heater configuration not yet known
 02 00 72 FF FF 80 00 17 0E 17 25 0A 2F 03
 
 I (601221665) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 19 0F 98 02 24 24 4A 03
@@ -27,6 +28,7 @@ I (601221665) MSG_DECODER: [Internet Gateway -> Broadcast] Temperature set comma
 
 I (601228305) MSG_DECODER: RX MSG: 02 00 72 FF FF 80 00 17 0E 17 24 0A 2E 03
 I (601228305) MSG_DECODER: [HiNRG Gas Heater -> Broadcast] HiNRG Gas Heater setpoints - Spa=36°C, Pool=10°C
+D (601228305) MSG_DECODER: HiNRG Gas Heater setpoints not applied - heater configuration not yet known
 02 00 72 FF FF 80 00 17 0E 17 24 0A 2E 03
 
 Alternate Ninkasi
@@ -42,6 +44,7 @@ I (65801381) MSG_DECODER: [Genus Heater -> Broadcast] Current temperature - 18°
 02 00 70 FF FF 80 00 16 0D 13 12 12 03
 I (65801721) MSG_DECODER: RX MSG: 02 00 70 FF FF 80 00 17 0E 15 18 19 31 03
 I (65801721) MSG_DECODER: [Genus Heater -> Broadcast] Genus Heater setpoints - Spa=24°C, Pool=25°C
+D (65801721) MSG_DECODER: Genus Heater setpoints not applied - heater configuration not yet known
 02 00 70 FF FF 80 00 17 0E 15 18 19 31 03
 
 Alternate lawther (including firmware version in case it helps explain differences)
@@ -60,6 +63,7 @@ I (00:43:57.764) MSG_DECODER: [ICI Gas Heater -> Broadcast] Current temperature 
 02 00 74 FF FF 80 00 16 0D 17 10 10 03
 I (00:43:58.134) MSG_DECODER: RX MSG: 02 00 74 FF FF 80 00 17 0E 19 0F 1B 2A 03
 I (00:43:58.134) MSG_DECODER: [ICI Gas Heater -> Broadcast] ICI Gas Heater setpoints - Spa=15°C, Pool=27°C
+D (00:43:58.134) MSG_DECODER: ICI Gas Heater setpoints not applied - heater configuration not yet known
 02 00 74 FF FF 80 00 17 0E 19 0F 1B 2A 03
 I (00:43:58.504) MSG_DECODER: RX MSG: 02 00 74 FF FF 80 00 0A 0E 0C 02 06 08 03
 I (00:43:58.504) MSG_DECODER: [ICI Gas Heater -> Broadcast] Firmware version - 2.6
@@ -67,7 +71,8 @@ I (00:43:58.504) MSG_DECODER: [ICI Gas Heater -> Broadcast] Firmware version - 2
 
 Alternate zagnuts
 I (10:51:55.314) MSG_DECODER: [Internet Gateway -> Broadcast] Temperature set command - Pool setpoint -> 20°C
-02 00 F0 FF FF 80 00 19 0F 98 01 14 14 29 03 
-I (10:51:55.643) MSG_DECODER: RX MSG: 02 00 70 FF FF 80 00 17 0E 15 18 14 2C 03 
-I (10:51:55.644) MSG_DECODER: [Genus Heater -> Broadcast] Genus Heater setpoints - Spa=24°C, Pool=20°C
-02 00 70 FF FF 80 00 17 0E 15 18 14 2C 03 
+02 00 F0 FF FF 80 00 19 0F 98 01 14 14 29 03
+I (10:51:55.643) MSG_DECODER: RX MSG: 02 00 70 FF FF 80 00 17 0E 15 18 14 2C 03
+I (10:51:55.643) MSG_DECODER: [Genus Heater -> Broadcast] Genus Heater setpoints - Spa=24°C, Pool=20°C
+D (10:51:55.643) MSG_DECODER: Genus Heater setpoints not applied - heater configuration not yet known
+02 00 70 FF FF 80 00 17 0E 15 18 14 2C 03

@@ -115,12 +115,6 @@ typedef struct {
 
     bool on;
 
-    // true once a dedicated heater device (Genus 0x0070, Viron 0x0071, HiNRG
-    // 0x0072, ICI 0x0074) has reported its own CMD 0x12 status. The Connect 8/10's CMD 0x12
-    // heater bit then stops writing `on` — on installs with an external heater
-    // that bit does not track it (observed stuck at 0 while the heater ran).
-    bool device_reported;
-
     // Temperature setpoints (per heater): 0xE7/0xE8 (Heater 1), 0xEA/0xEB (Heater 2)
     uint8_t pool_setpoint;     // °C
     uint8_t spa_setpoint;      // °C
@@ -218,7 +212,7 @@ typedef struct {
 
 // Heater 1 type (register 0xC8, slot 0x00)
 #define HEATER1_TYPE_NONE             0x00
-#define HEATER1_TYPE_GENUS            0x01  // Genus (Gas) - bus-controlled heater
+#define HEATER1_TYPE_GENUS            0x01  // Genus - smart-control heater on the bus (Genus, Viron, HiNRG, ICI)
 #define HEATER1_TYPE_CONNECT_INBUILT  0x03  // Power switched through a controller channel
 
 typedef struct {
