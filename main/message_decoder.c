@@ -191,6 +191,7 @@ static const channel_type_entry_t CHANNEL_TYPE_TABLE[] = {
     {CHANNEL_TYPE_HEATER_POWER,     "Heater Power"},
     {CHANNEL_TYPE_CUSTOM_NAME,      "Custom Name"},
     {CHANNEL_TYPE_SECONDARY_HEATER, "Secondary Heater"},
+    {CHANNEL_TYPE_SOLAR_CONTROLLER, "Solar"},
     {CHANNEL_TYPE_HEATER,           "Heater"},
     {CHANNEL_TYPE_LIGHT_ZONE,       "Light Zone"},
 };
@@ -2741,13 +2742,15 @@ static bool handle_solar_setpoint_broadcast(
 }
 
 /**
- * Handler: Solar status broadcast (CMD 0x2C) — log-only
+ * Handler: Solar status broadcast (CMD 0x2C)
  * Dispatched on the CMD byte alone (source-agnostic).
  *
- * Solar config block from the Touchscreen: config bitmask (season, flush
- * daily, filter pump required), mode, two temperature readings (likely pool
- * water / roof, byte order unconfirmed) and the temperature differential.
- * See PROTOCOL.md 0x2C for the payload layout and remaining unknowns.
+ * Solar config/status block from the Touchscreen: config bitmask (season,
+ * flush daily, filter pump required), selected mode, live output state, one
+ * unknown byte and the temperature differential. The mode and live output
+ * here are authoritative for a dedicated Solar channel (type 0xFC): its CMD
+ * 0x0B tuple remains FC 00 00 even when Solar is Auto and running, and CMD
+ * 0x0D omits that controller-managed output.
  */
 static bool handle_solar_status_broadcast(
     const uint8_t *data, int len,
@@ -2759,15 +2762,57 @@ static bool handle_solar_status_broadcast(
 
     uint8_t flags = payload[0];
     uint8_t mode  = payload[1];
+    uint8_t runtime_state = payload[2];
+    bool solar_active = runtime_state != 0;
     const char *mode_name = (mode == 0x00) ? "Off" : (mode == 0x01) ? "Auto" : (mode == 0x02) ? "On" : "Unknown";
 
     ESP_LOGI(TAG, "%s Solar status - Mode: %s, Season: %s, Flush daily: %s, "
-             "Filter pump required: %s, Differential: %d°C, Temps: %d°C/%d°C",
+             "Filter pump required: %s, Output: %s (0x%02X), Differential: %d°C, Unknown: 0x%02X",
              addr_info, mode_name,
              (flags & 0x20) ? "Summer" : "Winter",
              (flags & 0x02) ? "on" : "off",
              (flags & 0x08) ? "yes" : "no",
-             payload[5], payload[2], payload[3]);
+             solar_active ? "Active" : "Inactive", runtime_state,
+             payload[5], payload[3]);
+
+    if (mode > 0x02) {
+        ESP_LOGW(TAG, "%s Solar status has undocumented mode 0x%02X", addr_info, mode);
+        record_undocumented(data, len);
+        return true;
+    }
+    if (runtime_state > 0x02) {
+        ESP_LOGW(TAG, "%s Solar status has undocumented runtime state 0x%02X",
+                 addr_info, runtime_state);
+        record_undocumented(data, len);
+    }
+
+    pool_state_t state_snapshot;
+    uint8_t channels_to_publish[MAX_CHANNELS] = {0};
+    int num_to_publish = 0;
+
+    if (state_lock(ctx, "solar status")) {
+        ctx->pool_state->solar_mode = mode;
+        ctx->pool_state->solar_mode_valid = true;
+        ctx->pool_state->solar_active = solar_active;
+        ctx->pool_state->solar_active_valid = true;
+
+        for (int i = 0; i < MAX_CHANNELS; i++) {
+            channel_state_t *channel = &ctx->pool_state->channels[i];
+            if (channel->configured && channel->type == CHANNEL_TYPE_SOLAR_CONTROLLER &&
+                (channel->state != mode || channel->active != solar_active)) {
+                channel->state = mode;
+                channel->active = solar_active;
+                channels_to_publish[num_to_publish++] = (uint8_t)(i + 1);
+            }
+        }
+        state_unlock(ctx, true, &state_snapshot);
+    }
+
+    if (ctx->enable_mqtt) {
+        for (int i = 0; i < num_to_publish; i++) {
+            mqtt_publish_channel(&state_snapshot, channels_to_publish[i]);
+        }
+    }
 
     return true;
 }
@@ -3662,6 +3707,18 @@ static bool handle_channel_status(
             channel_type_t ch_type = (channel_type_t)payload[payload_idx];
             uint8_t state   = payload[payload_idx + 1];
             uint8_t active  = payload[payload_idx + 2];
+
+            // The dedicated Solar controller does not put its actual mode or
+            // output state in CMD 0x0B. Preserve the authoritative CMD 0x2C
+            // values instead of replacing them with the observed FC 00 00.
+            if (ch_type == CHANNEL_TYPE_SOLAR_CONTROLLER) {
+                if (ctx->pool_state->solar_mode_valid) {
+                    state = ctx->pool_state->solar_mode;
+                }
+                if (ctx->pool_state->solar_active_valid) {
+                    active = ctx->pool_state->solar_active ? 1 : 0;
+                }
+            }
             const char *state_name = (state < CHANNEL_STATE_COUNT) ? CHANNEL_STATE_NAMES[state] : "Unknown";
 
             if (ch_type == CHANNEL_TYPE_UNUSED) {

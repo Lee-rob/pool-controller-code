@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CMD `0x12` Device Status is now dispatched on the CMD byte and routed to the right decoder by source address, instead of matching ten fixed per-device frames. Frames are no longer rejected for an unexpected length byte, as each decoder already checks the payload it reads. Unhandled `0x12` frames now log the command as "Device Status" rather than "Status/Other"
 - The HiNRG and ICI gas heater status decoder now flags a non-zero byte 10, 12 or 13 as undocumented, matching the Genus heater decoder; these bytes have only ever been seen as `0x00`
 ### Fixed
+- Dedicated Connect 10 Solar channels (`0xFC`) now report their selected
+  Off/Auto/On mode and live output activity from CMD `0x2C`. Their CMD `0x0B`
+  tuple remains `FC 00 00` and CMD `0x0D` omits Solar even while it is running,
+  so those messages no longer overwrite the authoritative Solar status.
 - Stopped flagging normal CMD `0x12` device-status values as undocumented. The Touchscreen's status frame sends `0x09` on some installs (as well as `0x01`/`0x05`), and the Connect 8/10's frame sends `0x04` in byte 10 and `0x00` in byte 12, so these were filling the Unknown Messages page. The Touchscreen frame is now logged as "Touchscreen status" rather than "Touchscreen other status", and PROTOCOL.md no longer claims these bytes are constant; what the Touchscreen's value means is still unknown
 ### Removed
 ### Deprecated
