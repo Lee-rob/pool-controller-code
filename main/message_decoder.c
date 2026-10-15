@@ -991,8 +991,8 @@ static bool handle_heater2_state(
 /**
  * Handler: Heater 2 configured flag
  * Register 0xCC, Slot 0x00 (0x01 = second heater configured, 0x00 = not).
- * Log-only. While set, the Touchscreen's periodic dump carries the Heater 2
- * registers (0xE9-0xEB) instead of the Heater 1 ones (0xE6-0xE8).
+ * While set, the Touchscreen's periodic dump carries the Heater 2 registers
+ * (0xE9-0xEB) instead of the Heater 1 ones (0xE6-0xE8).
  */
 static bool handle_heater2_configured(
     const uint8_t *data, int len,
@@ -1011,13 +1011,18 @@ static bool handle_heater2_configured(
 
     ESP_LOGI(TAG, "%s Heater 2 configured - %s", addr_info, configured ? "Yes" : "No");
 
+    if (state_lock(ctx, "heater 2 configured")) {
+        ctx->pool_state->heater2_configured       = (configured != 0);
+        ctx->pool_state->heater2_configured_valid = true;
+        state_unlock(ctx, true, NULL);
+    }
+
     return true;
 }
 
 /**
  * Handler: Heater 1 type
  * Register 0xC8, Slot 0x00 (0x00 = none, 0x01 = Genus (Gas), 0x03 = Connect Inbuilt).
- * Log-only.
  */
 static bool handle_heater1_type(
     const uint8_t *data, int len,
@@ -1040,6 +1045,12 @@ static bool handle_heater1_type(
     }
 
     ESP_LOGI(TAG, "%s Heater 1 type - %s (%d)", addr_info, name, type);
+
+    if (state_lock(ctx, "heater 1 type")) {
+        ctx->pool_state->heater1_type       = type;
+        ctx->pool_state->heater1_type_valid = true;
+        state_unlock(ctx, true, NULL);
+    }
 
     return true;
 }
@@ -1364,9 +1375,10 @@ static bool handle_genus_heater_status(
  * The frame does not identify which controller heater slot the device occupies,
  * and it is not always Heater 1 — on the two-heater install in PROTOCOL.md
  * Appendix A the Genus heat pump's values match 0xEA/0xEB. So the values are
- * applied only while nothing has been seen about Heater 2. Once a second heater
- * is known the attribution is ambiguous and this stays log-only, leaving 
- * handle_temp_setpoint authoritative.
+ * applied only while there is no second heater. While one is configured the
+ * attribution is ambiguous and this stays log-only, leaving handle_temp_setpoint
+ * authoritative. Whether a second heater is configured comes from register
+ * 0xCC; until that has been received, anything seen about Heater 2 counts.
  *
  * A heater that isn't plumbed to both circuits broadcasts the 0x0A (10°C)
  * "uninstalled" default in the unused circuit, so each circuit is applied only
@@ -1394,7 +1406,10 @@ static bool handle_heater_temp_setting(
     if (!state_lock(ctx, "heater device setpoints")) return true;
 
     const pool_heater_t *heater2 = &ctx->pool_state->heaters[1];
-    if (heater2->valid || heater_setpoint_valid(heater2)) {
+    bool heater2_present = ctx->pool_state->heater2_configured_valid
+                               ? ctx->pool_state->heater2_configured
+                               : (heater2->valid || heater_setpoint_valid(heater2));
+    if (heater2_present) {
         state_unlock(ctx, false, NULL);
         ESP_LOGD(TAG, "%s setpoints not applied - Heater 2 present, heater slot unknown",
                  heater_name);

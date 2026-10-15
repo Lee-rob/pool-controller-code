@@ -231,6 +231,14 @@ typedef struct {
     // Heaters (up to MAX_HEATERS)
     pool_heater_t heaters[MAX_HEATERS];
 
+    // Heater configuration, as the Touchscreen reports it. Heater 1's type
+    // (register 0xC8, slot 0x00) is a HEATER1_TYPE_* code; a second heater
+    // (register 0xCC, slot 0x00) can only be Connect Inbuilt, so it is a flag.
+    uint8_t heater1_type;
+    bool heater1_type_valid;
+    bool heater2_configured;
+    bool heater2_configured_valid;
+
     // Mode
     uint8_t mode;  // MODE_SPA (0x00) or MODE_POOL (0x01)
     bool mode_valid;
