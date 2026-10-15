@@ -656,6 +656,98 @@ void test_channel_status_does_not_fabricate_pump_speed_without_telemetry(void)
                 "channel status should never set pump_telemetry_seen");
 }
 
+void test_decode_connect10_dedicated_solar_channel(void)
+{
+    init_test_context();
+
+    uint8_t msg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x0B, 0x25, 0x00,
+        0x08,
+        0x09, 0x01, 0x00,  // Ch1 Blower Auto inactive
+        0xFC, 0x00, 0x00,  // Ch2 dedicated Solar raw tuple
+        0x11, 0x01, 0x00,  // Ch3 Heater Power Auto inactive
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x01, 0x01, 0x01,  // Ch8 Filter Auto active
+        0x23, 0x03
+    };
+
+    TEST_ASSERT(decode_message(msg, sizeof(msg), &test_ctx),
+                "Connect 10 dedicated Solar frame should decode");
+    TEST_ASSERT(test_pool_state.channels[1].type == CHANNEL_TYPE_SOLAR_CONTROLLER,
+                "Channel 2 type 0xFC should be dedicated Solar");
+    TEST_ASSERT(strcmp(get_channel_type_name(test_pool_state.channels[1].type), "Solar") == 0,
+                "Dedicated Solar should be labelled Solar");
+}
+
+void test_dedicated_solar_uses_solar_status_mode_and_activity(void)
+{
+    init_test_context();
+
+    // Learn that channel 2 is the dedicated Solar controller. Its raw 0x0B
+    // tuple says Off/inactive even when the separate Solar status says otherwise.
+    uint8_t channel_status[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x0B, 0x25, 0x00,
+        0x08,
+        0x09, 0x01, 0x00,
+        0xFC, 0x00, 0x00,
+        0x11, 0x01, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x01, 0x01, 0x01,
+        0x23, 0x03
+    };
+    TEST_ASSERT(decode_message(channel_status, sizeof(channel_status), &test_ctx),
+                "Dedicated Solar baseline channel status decoded");
+
+    uint8_t solar_auto[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x2C, 0x12, 0x0E,
+        0x23, 0x01, 0x00, 0x00, 0x04, 0x07, 0x2F, 0x03
+    };
+    TEST_ASSERT(decode_message(solar_auto, sizeof(solar_auto), &test_ctx),
+                "Inactive Auto Solar status decoded");
+    TEST_ASSERT(test_pool_state.solar_mode_valid && test_pool_state.solar_mode == 1,
+                "Solar mode retained from CMD 0x2C");
+    TEST_ASSERT(test_pool_state.channels[1].state == 1,
+                "Dedicated Solar channel reports Auto from CMD 0x2C");
+    TEST_ASSERT(test_pool_state.solar_active_valid && !test_pool_state.solar_active,
+                "Inactive Solar output retained from CMD 0x2C");
+
+    // In the running capture only payload byte 2 changes to 0x02; mode stays
+    // Auto, the 0x0B Solar tuple stays FC 00 00 and CMD 0x0D names Filter only.
+    uint8_t solar_running[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x2C, 0x12, 0x0E,
+        0x2B, 0x01, 0x02, 0x00, 0x02, 0x04, 0x34, 0x03
+    };
+    TEST_ASSERT(decode_message(solar_running, sizeof(solar_running), &test_ctx),
+                "Running Solar status decoded");
+    TEST_ASSERT(test_pool_state.solar_active && test_pool_state.channels[1].active,
+                "Dedicated Solar channel reports active from CMD 0x2C runtime state");
+
+    uint8_t active_channels[] = {
+        0x02, 0x00, 0x50, 0x00, 0x6F, 0x80, 0x00, 0x0D, 0x0D, 0x5B,
+        0x80, 0x80, 0x03
+    };
+    TEST_ASSERT(decode_message(active_channels, sizeof(active_channels), &test_ctx),
+                "Active-channel bitmap decoded");
+    TEST_ASSERT(test_pool_state.channels[1].active,
+                "Ordinary-channel bitmap cannot clear dedicated Solar activity");
+
+    TEST_ASSERT(decode_message(channel_status, sizeof(channel_status), &test_ctx),
+                "Following dedicated Solar channel status decoded");
+    TEST_ASSERT(test_pool_state.channels[1].state == 1 && test_pool_state.channels[1].active,
+                "Stale 0x0B Solar tuple cannot overwrite mode or activity");
+
+    TEST_ASSERT(decode_message(solar_auto, sizeof(solar_auto), &test_ctx),
+                "Solar stop status decoded");
+    TEST_ASSERT(!test_pool_state.channels[1].active,
+                "Dedicated Solar channel clears from CMD 0x2C runtime state");
+}
+
 /**
  * Test: Channel status message — light zones active
  * Real message: 02 00 50 FF FF 80 00 0B 25 00 08 01 00 00 02 00 00 FE 02 01 FE 02 01 0B 00 00 09 00 00 FD 00 00 00 00 00 1E 03
@@ -1471,6 +1563,8 @@ int main(void)
     test_decode_channel_status_all_off();
     test_channel_status_resets_pump_speed_when_filter_off();
     test_channel_status_does_not_fabricate_pump_speed_without_telemetry();
+    test_decode_connect10_dedicated_solar_channel();
+    test_dedicated_solar_uses_solar_status_mode_and_activity();
     test_decode_channel_status_lights_active();
     test_decode_channel_status_multispeed_pump();
     test_channel_status_teaches_filter_pump_type();

@@ -247,7 +247,7 @@ Click any CMD in the first column to jump to the full section in [Commands](#com
 | [`0x29`](#0x29--valve-button-️)                                | Valve Button                        | `0x0062` Connect 8/10 → Broadcast                                      | 1-byte 0-based valve index; sent when a Valve button is pressed on the controller; the Touchscreen answers with `0x27`; dispatched on CMD byte alone | Yes (log-only)          |
 | [`0x2A`](#0x2a--favourite-control-command-)                    | Favourite Control Command           | `0x00F0` Gateway, `0x0062` Connect 8/10 → `0x0050` Touchscreen         | Unicast; dispatched on CMD byte alone (source-agnostic). The Connect 8/10 sends All Auto (`0x81`) for its Auto button | Yes (unified handler)   |
 | [`0x2B`](#0x2b--unknown-️)                                     | Unknown (heartbeat)                 | `0x0062` Connect 8/10 → `0x0050` Touchscreen                          | Unicast ~60 s; payload `[02 00]` observed; meaning unknown. Handler flags any deviation      | Yes (log-only + flag)   |
-| [`0x2C`](#0x2c--solar-status-broadcast-️)                      | Solar Status Broadcast              | `0x0050` Touchscreen → Broadcast                                       | Byte 11 = solar mode (Off/Auto/On); byte 10 bit 5 = Winter/Summer; byte 15 = temperature differential °C; dispatched on CMD byte alone | Yes (log-only)          |
+| [`0x2C`](#0x2c--solar-status-broadcast-️)                      | Solar Status Broadcast              | `0x0050` Touchscreen → Broadcast                                       | Byte 11 = solar mode (Off/Auto/On); byte 12 = live dedicated-Solar output state; byte 15 = temperature differential °C; dispatched on CMD byte alone | Yes                     |
 | [`0x2D`](#0x2d--solar-setpoint-broadcast-)                     | Solar Setpoint Broadcast            | `0x0050` Touchscreen → Broadcast                                       | Fired when the solar setpoint is changed; 1-byte °C value; dispatched on CMD byte alone     | Yes (log-only)          |
 | [`0x31`](#0x31--water-temperature-reading-alt-)                | Water Temperature Reading (alt)     | `0x0062` → Broadcast                                                   | Same `{temp1, temp2}` field layout as `0x16`; different disconnected encoding (`>= 0xA0` vs `0x00`); shared handler, log-only | Yes (unified handler)   |
 | [`0x37`](#0x37--internet-gateway-info-️)                       | Internet Gateway Info               | `0x00F0` → Broadcast                                                   | LEN distinguishes serial (`0x11`), network config (`0x15`), comms status (`0x0F`) variants  | Yes (3 handlers)        |
@@ -439,6 +439,7 @@ Detailed status for all configured channels. Broadcast by the Touchscreen (`0x00
 - `0x12`: Heater Power
 - `0x13`: Custom Name
 - `0xFB`: Secondary Heater
+- `0xFC`: Dedicated temperature-controlled Solar
 - `0xFD`: Flagged as heater power
 - `0xFE`: Flagged as light channel
 
@@ -1733,7 +1734,10 @@ Unicast message sent by the Connect 8/10 Controller (`0x0062`) directly to the T
 
 ### 0x2C — Solar Status Broadcast ⚠️
 
-Broadcast from the Touchscreen (`0x0050`) carrying the solar mode and further, not yet decoded, solar fields. Like [0x2D](#0x2d--solar-setpoint-broadcast-), it only appears on systems where the solar configuration has been touched.
+Broadcast from the Touchscreen (`0x0050`) carrying the Solar mode, live output
+state, configuration flags and further not-yet-decoded fields. Like
+[0x2D](#0x2d--solar-setpoint-broadcast-), it only appears on systems where the
+solar configuration has been touched.
 
 **Pattern:** `02 00 50 FF FF 80 00 2C 12 0E`
 
@@ -1741,8 +1745,8 @@ Broadcast from the Touchscreen (`0x0050`) carrying the solar mode and further, n
 
 ```
 02 00 50 FF FF 80 00 2C 12 0E 23 00 00 00 04 07 2E 03   Solar mode Off
-02 00 50 FF FF 80 00 2C 12 0E 23 01 00 00 04 07 2F 03   Solar mode Auto
-02 00 50 FF FF 80 00 2C 12 0E 23 02 00 00 04 07 30 03   Solar mode On
+02 00 50 FF FF 80 00 2C 12 0E 23 01 00 00 04 07 2F 03   Solar mode Auto, output inactive
+02 00 50 FF FF 80 00 2C 12 0E 2B 01 02 00 02 04 34 03   Solar mode Auto, output active
                                  ^^ Solar mode
 02 00 50 FF FF 80 00 2C 12 0E 03 00 00 00 04 07 0E 03   Winter (byte 10 bit 5 clear)
 02 00 50 FF FF 80 00 2C 12 0E 23 00 00 00 04 07 2E 03   Summer (byte 10 bit 5 set)
@@ -1761,14 +1765,18 @@ Broadcast from the Touchscreen (`0x0050`) carrying the solar mode and further, n
   - Bit 0: Unknown — always `1` in observed samples
   - Other bits: `0` in observed samples
 - Byte 11: Solar mode (`0x00`=Off, `0x01`=Auto, `0x02`=On — same encoding as channel state)
-- Bytes 12–13: Likely the two solar temperature readings the touchscreen shows as "Pool water was" and "Roof temperature" (°C) — both read 0 on the observed system, matching the constant `0x00 0x00`. Which byte is which (and the confirmation itself) needs a capture with live solar sensors reporting non-zero values.
+- Byte 12: Live Solar output state (`0x00`=inactive, `0x02`=active observed). This is authoritative for the dedicated Solar channel: in the same running capture, its `0x0B` tuple remained `FC 00 00` and CMD `0x0D` was `0x80` (Filter channel 8 only).
+- Byte 13: Unknown (`0x00` observed).
 - Byte 14: Unknown — has tracked byte 15 at (differential − 3) in all observed samples (`04`/`07`, `03`/`06`)
 - Byte 15: Temperature differential in °C
 - Byte 16: Data checksum
 
 **Notes:**
 
-- Decoded in code by `handle_solar_status_broadcast` — log-only, no `pool_state` update.
+- Decoded in code by `handle_solar_status_broadcast`. The mode and live output
+  state are retained as authoritative for a dedicated Solar channel (`0xFC`),
+  because that channel's CMD `0x0B` tuple remains `FC 00 00` even while Solar
+  is Auto and actively running.
 
 ---
 

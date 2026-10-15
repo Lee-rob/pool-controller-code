@@ -59,6 +59,7 @@ typedef enum {
     CHANNEL_TYPE_HEATER_POWER     = 0x11,
     CHANNEL_TYPE_CUSTOM_NAME      = 0x12,
     CHANNEL_TYPE_SECONDARY_HEATER = 0xFB,
+    CHANNEL_TYPE_SOLAR_CONTROLLER = 0xFC, // Dedicated temperature-controlled Solar
     CHANNEL_TYPE_HEATER           = 0xFD, // Channel is a heater (handled separately)
     CHANNEL_TYPE_LIGHT_ZONE       = 0xFE, // Channel is a lighting zone (handled separately)
 } channel_type_t;
@@ -237,6 +238,14 @@ typedef struct {
     // Channels (up to MAX_CHANNELS)
     channel_state_t channels[MAX_CHANNELS];
     uint8_t num_channels;
+
+    // A dedicated Solar channel (type 0xFC) leaves its CMD 0x0B tuple at
+    // FC 00 00 even while running. CMD 0x2C carries its selected mode and
+    // live output state instead, so retain those values across broadcasts.
+    uint8_t solar_mode;       // 0=Off, 1=Auto, 2=On
+    bool solar_mode_valid;
+    bool solar_active;
+    bool solar_active_valid;
 
     // Valves (up to MAX_VALVE_SLOTS)
     valve_state_t valves[MAX_VALVE_SLOTS];
