@@ -69,7 +69,7 @@ typedef struct {
     uint8_t id;
     char name[32];
     channel_type_t type;
-    uint8_t category;  // 1=Pool equipment, 2=Light, 3=Controlled Heater Power (register 0xF5+, slot 0x01); 0 if not yet received
+    uint8_t category;  // 1=Pool equipment, 2=Light, 3=Controlled Heater Power, 5=Secondary Heater (register 0xF5+, slot 0x01); 0 if not yet received
     uint8_t state;
     bool active;       // true if currently running (e.g. turned on by timer)
     bool configured;

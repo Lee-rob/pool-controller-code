@@ -1,5 +1,5 @@
 # Timers: the schedule registers (0x08-0x17, slot 0x04) and their
-# configured flags (0xE8-0xF7, slot 0x03), from zagnuts.
+# configured flags (0xE8-0xF7, slot 0x03), from the reference install.
 #
 # Timer 1 is configured (09:30-11:30 every day), then disabled at the
 # Touchscreen. Disabling clears both the schedule and the configured flag.

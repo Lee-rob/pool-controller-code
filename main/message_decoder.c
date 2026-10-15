@@ -581,6 +581,8 @@ static bool handle_valve_state(const uint8_t *data, int len, const uint8_t *payl
 static bool handle_touchscreen_unknown3(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_heater1_state(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_heater2_state(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
+static bool handle_heater2_configured(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
+static bool handle_heater1_type(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_chlor_unknown_countdown(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_chlor_unknown_value(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 
@@ -641,6 +643,12 @@ static const register_handler_t REGISTER_HANDLERS[] = {
 
     // Heater 2 state (slot 0x00, register 0xE9): 0x00=Off, 0x01=On
     {REG_ID_HEATER2_ONOFF,         REG_ID_HEATER2_ONOFF,         0x00, handle_heater2_state,          "Heater 2 State"},
+
+    // Heater 1 type (slot 0x00, register 0xC8): none / Genus / Connect Inbuilt
+    {REG_ID_HEATER1_TYPE,          REG_ID_HEATER1_TYPE,          0x00, handle_heater1_type,           "Heater 1 Type"},
+
+    // Heater 2 configured flag (slot 0x00, register 0xCC): 0x01 = second heater configured
+    {REG_ID_HEATER2_CONFIGURED,    REG_ID_HEATER2_CONFIGURED,    0x00, handle_heater2_configured,     "Heater 2 Configured"},
 
     // Heater 2 setpoints (slot 0x00, registers 0xEA=Pool, 0xEB=Spa)
     {REG_ID_HEATER2_POOL_SETPOINT, REG_ID_HEATER2_SPA_SETPOINT, 0x00, handle_temp_setpoint,          "Heater 2 Setpoint"},
@@ -976,6 +984,62 @@ static bool handle_heater2_state(
     if (ctx->enable_mqtt) {
         mqtt_publish_heater(&snapshot, 1);
     }
+
+    return true;
+}
+
+/**
+ * Handler: Heater 2 configured flag
+ * Register 0xCC, Slot 0x00 (0x01 = second heater configured, 0x00 = not).
+ * Log-only. While set, the Touchscreen's periodic dump carries the Heater 2
+ * registers (0xE9-0xEB) instead of the Heater 1 ones (0xE6-0xE8).
+ */
+static bool handle_heater2_configured(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 3) return false;
+
+    uint8_t configured = payload[2];
+
+    if (configured >= 0x02) {
+        ESP_LOGW(TAG, "%s Heater 2 configured out of expected range 0x00-0x01: 0x%02X", addr_info, configured);
+        record_undocumented(data, len);
+    }
+
+    ESP_LOGI(TAG, "%s Heater 2 configured - %s", addr_info, configured ? "Yes" : "No");
+
+    return true;
+}
+
+/**
+ * Handler: Heater 1 type
+ * Register 0xC8, Slot 0x00 (0x00 = none, 0x01 = Genus (Gas), 0x03 = Connect Inbuilt).
+ * Log-only.
+ */
+static bool handle_heater1_type(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 3) return false;
+
+    uint8_t type = payload[2];
+    const char *name;
+    switch (type) {
+        case HEATER1_TYPE_NONE:            name = "None"; break;
+        case HEATER1_TYPE_GENUS:           name = "Genus (Gas)"; break;
+        case HEATER1_TYPE_CONNECT_INBUILT: name = "Connect Inbuilt"; break;
+        default:
+            name = "Unknown";
+            record_undocumented(data, len);
+            break;
+    }
+
+    ESP_LOGI(TAG, "%s Heater 1 type - %s (%d)", addr_info, name, type);
 
     return true;
 }
@@ -3133,6 +3197,7 @@ static const char* get_channel_category_name(uint8_t code, char *fallback_buf, s
         case CHANNEL_CATEGORY_POOL_EQUIPMENT: return "Pool equipment";
         case CHANNEL_CATEGORY_LIGHT:          return "Light";
         case CHANNEL_CATEGORY_HEATER_POWER:   return "Controlled Heater Power";
+        case CHANNEL_CATEGORY_SECONDARY_HEATER: return "Secondary Heater";
     }
     snprintf(fallback_buf, buf_size, "Unknown 0x%02X", code);
     return fallback_buf;
@@ -3141,7 +3206,8 @@ static const char* get_channel_category_name(uint8_t code, char *fallback_buf, s
 /**
  * Handler: Channel category
  * Register range: 0xF5-0xFC, Slot: 0x01
- * Values: 0x01=Pool equipment, 0x02=Light, 0x03=Controlled Heater Power
+ * Values: 0x01=Pool equipment, 0x02=Light, 0x03=Controlled Heater Power,
+ * 0x05=Secondary Heater (0x04 not observed)
  * Only broadcast for channels that are in use.
  */
 static bool handle_channel_category(
@@ -3160,7 +3226,8 @@ static bool handle_channel_category(
     const char *category_name = get_channel_category_name(category, fallback, sizeof(fallback));
     ESP_LOGI(TAG, "%s Channel %d category - %s (%d)", addr_info, ch_num, category_name, category);
 
-    if (category < CHANNEL_CATEGORY_POOL_EQUIPMENT || category > CHANNEL_CATEGORY_HEATER_POWER) {
+    if (category != CHANNEL_CATEGORY_POOL_EQUIPMENT && category != CHANNEL_CATEGORY_LIGHT &&
+        category != CHANNEL_CATEGORY_HEATER_POWER && category != CHANNEL_CATEGORY_SECONDARY_HEATER) {
         record_undocumented(data, len);
     }
 

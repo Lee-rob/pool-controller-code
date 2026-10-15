@@ -125,6 +125,12 @@ const uint8_t* multicolor_light_color_codes(uint8_t light_type, int *count);
 #define CHANNEL_CATEGORY_POOL_EQUIPMENT 0x01
 #define CHANNEL_CATEGORY_LIGHT          0x02
 #define CHANNEL_CATEGORY_HEATER_POWER   0x03  // Controlled Heater Power
+#define CHANNEL_CATEGORY_SECONDARY_HEATER 0x05  // Secondary Heater (0x04 not observed)
+
+// Heater 1 type codes (register 0xC8, slot 0x00)
+#define HEATER1_TYPE_NONE             0x00
+#define HEATER1_TYPE_GENUS            0x01  // Genus (Gas) - bus-controlled heater
+#define HEATER1_TYPE_CONNECT_INBUILT  0x03  // Power switched through a controller channel
 
 // Register IDs used in CMD 0x38 (register data) and CMD 0x3A (register write).
 // See PROTOCOL.md Appendix A for the full dispatch table.
@@ -185,7 +191,9 @@ typedef enum {
     REG_ID_TIMER_CONFIGURED_15     = 0xF7,  // Timer 15 configured (last)
 
     // Point registers
-    REG_ID_HEATER1_ONOFF         = 0xE6,  // Heater 1 on/off state
+    REG_ID_HEATER1_TYPE          = 0xC8,  // First heater type (slot 0x00): HEATER1_TYPE_*
+    REG_ID_HEATER2_CONFIGURED    = 0xCC,  // Second heater configured flag (slot 0x00)
+    REG_ID_HEATER1_ONOFF        = 0xE6,  // Heater 1 on/off state
     REG_ID_HEATER1_POOL_SETPOINT = 0xE7,  // Pool temperature setpoint (Heater 1)
     REG_ID_HEATER1_SPA_SETPOINT  = 0xE8,  // Spa temperature setpoint (Heater 1)
     REG_ID_HEATER2_ONOFF         = 0xE9,  // Heater 2 on/off state — tentative, see PROTOCOL.md Appendix A
