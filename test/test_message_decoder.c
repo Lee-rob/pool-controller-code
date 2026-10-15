@@ -45,6 +45,13 @@ void mqtt_publish_heater_setpoints(const pool_state_t *state, int index) {}
 void mqtt_publish_temperature_reading(const pool_state_t *state, int dev_idx, uint8_t sensor_index) {}
 void mqtt_publish_heater(const pool_state_t *state, int index) {}
 void mqtt_publish_gas_heater(const pool_state_t *state, int index) {}
+static int heater_config_publishes = 0;
+static int last_heater_config_index = -1;
+void mqtt_publish_heater_config(const pool_state_t *state, int index)
+{
+    heater_config_publishes++;
+    last_heater_config_index = index;
+}
 void mqtt_publish_chlorinator(const pool_state_t *state) {}
 void mqtt_publish_pump(const pool_state_t *state) {}
 void mqtt_publish_service_mode(const pool_state_t *state) {}
@@ -564,6 +571,57 @@ void test_heater_configured_helper(void)
                 "Heater 1 should be configured with 0xC8 = 0x01 (Genus)");
     TEST_ASSERT(heater_configured(&test_pool_state, 1, &known) && known,
                 "Heater 2 should be configured with 0xCC = 0x01");
+}
+
+/**
+ * Test: a heater configuration register triggers mqtt_publish_heater_config
+ * when it first arrives and when its value changes, not on every repeat.
+ */
+void test_heater_config_change_publishes(void)
+{
+    init_test_context();
+    test_ctx.enable_mqtt = true;
+    heater_config_publishes = 0;
+    last_heater_config_index = -1;
+
+    uint8_t c8_inbuilt[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xC8, 0x00, 0x03,
+        0xCB,
+        0x03
+    };
+    uint8_t c8_none[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xC8, 0x00, 0x00,
+        0xC8,
+        0x03
+    };
+    uint8_t cc_none[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xCC, 0x00, 0x00,
+        0xCC,
+        0x03
+    };
+
+    decode_message(c8_inbuilt, sizeof(c8_inbuilt), &test_ctx);
+    TEST_ASSERT(heater_config_publishes == 1 && last_heater_config_index == 0,
+                "First 0xC8 should publish Heater 1's configuration");
+
+    decode_message(c8_inbuilt, sizeof(c8_inbuilt), &test_ctx);
+    TEST_ASSERT(heater_config_publishes == 1, "Repeated 0xC8 with the same value should not publish");
+
+    decode_message(c8_none, sizeof(c8_none), &test_ctx);
+    TEST_ASSERT(heater_config_publishes == 2 && last_heater_config_index == 0,
+                "Changed 0xC8 should publish Heater 1's configuration");
+
+    decode_message(cc_none, sizeof(cc_none), &test_ctx);
+    TEST_ASSERT(heater_config_publishes == 3 && last_heater_config_index == 1,
+                "First 0xCC should publish Heater 2's configuration");
+
+    test_ctx.enable_mqtt = false;
 }
 
 /**
@@ -2028,6 +2086,7 @@ int main(void)
     test_heater_device_setpoint_heater2_configured();
     test_heater_config_registers();
     test_heater_configured_helper();
+    test_heater_config_change_publishes();
     test_decode_temp_reading();
     test_decode_heater_on();
     test_decode_heater_off();

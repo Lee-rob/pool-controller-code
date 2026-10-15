@@ -73,6 +73,10 @@ void mqtt_publish_gas_heater_discovery_single(int index);
 // first publishes setpoints).
 void mqtt_publish_heater_setpoint_discovery_single(int index);
 
+// Retract all of a heater's entities (switch, setpoint numbers, gas heater
+// detail sensors), for a heater the configuration registers say isn't configured.
+void mqtt_remove_heater_discovery(int index);
+
 // Publish individual temperature-sensor discovery for a (source, sensor) pair.
 // Called the first time `mqtt_publish_temperature_reading` fires for each
 // (dev_idx, sensor_index). `single_sensor_source` selects the HA entity name

@@ -73,9 +73,22 @@ static char s_channel_discovery_name[MAX_CHANNELS][32];
 // Setpoint and Temperature Publishing
 // ======================================================
 
+// Heater entities are published only for a heater the configuration registers
+// (0xC8, 0xCC) say is configured. The Touchscreen and controller still send
+// setpoints and a heater bit with no heater configured, which would otherwise
+// create a phantom heater.
+static bool heater_publishable(const pool_state_t *current_state, int index)
+{
+    bool known;
+    return heater_configured(current_state, index, &known);
+}
+
 void mqtt_publish_heater_setpoints(const pool_state_t *current_state, int index)
 {
     if (index < 0 || index >= MAX_HEATERS) {
+        return;
+    }
+    if (!heater_publishable(current_state, index)) {
         return;
     }
 
@@ -183,6 +196,9 @@ void mqtt_publish_heater(const pool_state_t *current_state, int index)
     if (index < 0 || index >= MAX_HEATERS) {
         return;
     }
+    if (!heater_publishable(current_state, index)) {
+        return;
+    }
 
     const pool_heater_t *heater = &current_state->heaters[index];
 
@@ -218,6 +234,10 @@ void mqtt_publish_gas_heater(const pool_state_t *current_state, int index)
 {
     if (index < 0 || index >= MAX_HEATERS) {
         ESP_LOGE(TAG, "mqtt_publish_gas_heater: index %d out of range", index);
+        return;
+    }
+
+    if (!heater_publishable(current_state, index)) {
         return;
     }
 
@@ -275,6 +295,42 @@ void mqtt_publish_gas_heater(const pool_state_t *current_state, int index)
     s_last_published_state.heaters[index].cooling_available = heater->cooling_available;
 
     ESP_LOGI(TAG, "Published gas heater %d: %s", index, payload);
+}
+
+void mqtt_publish_heater_config(const pool_state_t *current_state, int index)
+{
+    if (index < 0 || index >= MAX_HEATERS) {
+        return;
+    }
+
+    bool known;
+    bool configured = heater_configured(current_state, index, &known);
+    if (!known) {
+        return;
+    }
+
+    if (!configured) {
+        // Retract its entities and forget what was published, so they come
+        // back in full if the heater is configured again.
+        mqtt_remove_heater_discovery(index);
+        s_discovery_published.heaters[index]          = false;
+        s_discovery_published.gas_heaters[index]      = false;
+        s_discovery_published.heater_setpoints[index] = false;
+        memset(&s_last_published_state.heaters[index], 0, sizeof(s_last_published_state.heaters[index]));
+        return;
+    }
+
+    // Publish whatever was held back while the heater's configuration was unknown
+    const pool_heater_t *heater = &current_state->heaters[index];
+    if (heater->valid) {
+        mqtt_publish_heater(current_state, index);
+    }
+    if (heater_setpoint_valid(heater)) {
+        mqtt_publish_heater_setpoints(current_state, index);
+    }
+    if (heater->gas_heater_valid) {
+        mqtt_publish_gas_heater(current_state, index);
+    }
 }
 
 // ======================================================

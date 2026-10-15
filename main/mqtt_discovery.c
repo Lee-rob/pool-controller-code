@@ -707,6 +707,40 @@ void mqtt_publish_gas_heater_discovery_single(int index)
     publish_gas_heater_detail_discovery(device_id, mac_suffix, index);
 }
 
+// Retract every entity a heater slot can have (switch, setpoint numbers and
+// the gas heater detail sensors), for a heater that isn't configured.
+void mqtt_remove_heater_discovery(int index)
+{
+    if (index < 0 || index >= MAX_HEATERS) return;
+
+    char mac_suffix[DEVICE_MAC_SUFFIX_LEN];
+    device_get_mac_suffix(mac_suffix, sizeof(mac_suffix));
+
+    static const struct {
+        const char *component;
+        const char *suffix;   // appended to "<prefix>_<mac>_heater_<index>"
+    } HEATER_ENTITIES[] = {
+        {"switch",        ""},
+        {"number",        "_pool_setpoint"},
+        {"number",        "_spa_setpoint"},
+        {"sensor",        "_gas_status"},
+        {"binary_sensor", "_water_flow"},
+        {"binary_sensor", "_locked_out"},
+        {"sensor",        "_burner"},
+        {"binary_sensor", "_general_service"},
+        {"binary_sensor", "_ignition_service"},
+        {"binary_sensor", "_cooling_available"},
+    };
+
+    ESP_LOGI(TAG, "Removing discovery for unconfigured heater %d", index);
+    for (size_t i = 0; i < sizeof(HEATER_ENTITIES) / sizeof(HEATER_ENTITIES[0]); i++) {
+        char uid[80];
+        snprintf(uid, sizeof(uid), DISCOVERY_ID_PREFIX "_%s_heater_%d%s",
+                 mac_suffix, index, HEATER_ENTITIES[i].suffix);
+        remove_discovery(HEATER_ENTITIES[i].component, uid);
+    }
+}
+
 // ======================================================
 // Mode Select Discovery
 // ======================================================

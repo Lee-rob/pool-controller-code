@@ -1011,10 +1011,17 @@ static bool handle_heater2_configured(
 
     ESP_LOGI(TAG, "%s Heater 2 configured - %s", addr_info, configured ? "Yes" : "No");
 
+    pool_state_t snapshot;
     if (state_lock(ctx, "heater 2 configured")) {
+        bool changed = !ctx->pool_state->heater2_configured_valid ||
+                       ctx->pool_state->heater2_configured != (configured != 0);
         ctx->pool_state->heater2_configured       = (configured != 0);
         ctx->pool_state->heater2_configured_valid = true;
-        state_unlock(ctx, true, NULL);
+        state_unlock(ctx, true, &snapshot);
+
+        if (changed && ctx->enable_mqtt) {
+            mqtt_publish_heater_config(&snapshot, 1);
+        }
     }
 
     return true;
@@ -1046,10 +1053,17 @@ static bool handle_heater1_type(
 
     ESP_LOGI(TAG, "%s Heater 1 type - %s (%d)", addr_info, name, type);
 
+    pool_state_t snapshot;
     if (state_lock(ctx, "heater 1 type")) {
+        bool changed = !ctx->pool_state->heater1_type_valid ||
+                       ctx->pool_state->heater1_type != type;
         ctx->pool_state->heater1_type       = type;
         ctx->pool_state->heater1_type_valid = true;
-        state_unlock(ctx, true, NULL);
+        state_unlock(ctx, true, &snapshot);
+
+        if (changed && ctx->enable_mqtt) {
+            mqtt_publish_heater_config(&snapshot, 0);
+        }
     }
 
     return true;
