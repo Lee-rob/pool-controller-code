@@ -26,8 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Dedicated Connect 10 Solar channels (`0xFC`) now report their selected
   Off/Auto/On mode and live output activity from CMD `0x2C`. Their CMD `0x0B`
-  tuple remains `FC 00 00` and CMD `0x0D` omits Solar even while it is running,
-  so those messages no longer overwrite the authoritative Solar status.
+  tuple remains `FC 00 00` even while Solar is running (and CMD `0x0D` omits
+  it), so CMD `0x2C` is treated as the authority: neither CMD `0x0B` nor the
+  Channel State register (`0x8C`+N) overwrites it, and a CMD `0x2C` seen before
+  the channel is known is applied once the Channel Type register or CMD `0x0B`
+  reveals it. The channel type is labelled "Solar Controller" so it can be told
+  apart from a relay-switched Solar channel (`0x08`). An undocumented raw state
+  on the Solar channel's CMD `0x0B` tuple, or an undocumented CMD `0x2C` mode,
+  is still flagged on the Unknown Messages page; the latter no longer discards
+  the output state in the same frame.
 - Stopped flagging normal CMD `0x12` device-status values as undocumented. The Touchscreen's status frame sends `0x09` on some installs (as well as `0x01`/`0x05`), and the Connect 8/10's frame sends `0x04` in byte 10 and `0x00` in byte 12, so these were filling the Unknown Messages page. The Touchscreen frame is now logged as "Touchscreen status" rather than "Touchscreen other status", and PROTOCOL.md no longer claims these bytes are constant; what the Touchscreen's value means is still unknown
 ### Removed
 ### Deprecated

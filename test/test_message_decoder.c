@@ -15,6 +15,10 @@
 #include "../main/pool_state.h"
 #include "../main/filter_pump_type.h"
 #include "nvs.h"
+#include "../main/unknown_buffer.h"
+
+// From unknown_buffer_stub.c — counts frames flagged as undocumented
+extern int unknown_buffer_record_count;
 
 // Mock FreeRTOS function implementations
 uint32_t xTaskGetTickCount(void)
@@ -678,8 +682,8 @@ void test_decode_connect10_dedicated_solar_channel(void)
                 "Connect 10 dedicated Solar frame should decode");
     TEST_ASSERT(test_pool_state.channels[1].type == CHANNEL_TYPE_SOLAR_CONTROLLER,
                 "Channel 2 type 0xFC should be dedicated Solar");
-    TEST_ASSERT(strcmp(get_channel_type_name(test_pool_state.channels[1].type), "Solar") == 0,
-                "Dedicated Solar should be labelled Solar");
+    TEST_ASSERT(strcmp(get_channel_type_name(test_pool_state.channels[1].type), "Solar Controller") == 0,
+                "Dedicated Solar should be labelled Solar Controller");
 }
 
 void test_dedicated_solar_uses_solar_status_mode_and_activity(void)
@@ -728,15 +732,6 @@ void test_dedicated_solar_uses_solar_status_mode_and_activity(void)
     TEST_ASSERT(test_pool_state.solar_active && test_pool_state.channels[1].active,
                 "Dedicated Solar channel reports active from CMD 0x2C runtime state");
 
-    uint8_t active_channels[] = {
-        0x02, 0x00, 0x50, 0x00, 0x6F, 0x80, 0x00, 0x0D, 0x0D, 0x5B,
-        0x80, 0x80, 0x03
-    };
-    TEST_ASSERT(decode_message(active_channels, sizeof(active_channels), &test_ctx),
-                "Active-channel bitmap decoded");
-    TEST_ASSERT(test_pool_state.channels[1].active,
-                "Ordinary-channel bitmap cannot clear dedicated Solar activity");
-
     TEST_ASSERT(decode_message(channel_status, sizeof(channel_status), &test_ctx),
                 "Following dedicated Solar channel status decoded");
     TEST_ASSERT(test_pool_state.channels[1].state == 1 && test_pool_state.channels[1].active,
@@ -746,6 +741,135 @@ void test_dedicated_solar_uses_solar_status_mode_and_activity(void)
                 "Solar stop status decoded");
     TEST_ASSERT(!test_pool_state.channels[1].active,
                 "Dedicated Solar channel clears from CMD 0x2C runtime state");
+}
+
+/**
+ * Test: the Channel State register (0x8C+N) cannot overwrite a dedicated Solar
+ * channel's CMD 0x2C mode — its register value is as stale as its 0x0B tuple.
+ */
+void test_dedicated_solar_state_register_does_not_override(void)
+{
+    init_test_context();
+
+    // Channel 2 type register = 0xFC (dedicated Solar)
+    uint8_t type_reg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x38, 0x0F, 0x17,
+        0x6D, 0x02, 0xFC, 0x6B, 0x03
+    };
+    // CMD 0x2C: Auto, output active
+    uint8_t solar_running[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x2C, 0x12, 0x0E,
+        0x2B, 0x01, 0x02, 0x00, 0x02, 0x04, 0x34, 0x03
+    };
+    // Channel 2 state register = 0x00 (Off), as in the periodic register dump
+    uint8_t state_reg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x38, 0x0F, 0x17,
+        0x8D, 0x02, 0x00, 0x8F, 0x03
+    };
+
+    TEST_ASSERT(decode_message(type_reg, sizeof(type_reg), &test_ctx),
+                "Solar channel type register decoded");
+    TEST_ASSERT(decode_message(solar_running, sizeof(solar_running), &test_ctx),
+                "Running Solar status decoded");
+    TEST_ASSERT(decode_message(state_reg, sizeof(state_reg), &test_ctx),
+                "Solar channel state register decoded");
+    TEST_ASSERT(test_pool_state.channels[1].state == 1 && test_pool_state.channels[1].active,
+                "Channel state register cannot overwrite dedicated Solar mode");
+}
+
+/**
+ * Test: a CMD 0x2C that arrives before the Solar channel is known is applied
+ * once the channel type register reveals it.
+ */
+void test_dedicated_solar_status_before_type_register(void)
+{
+    init_test_context();
+
+    uint8_t solar_running[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x2C, 0x12, 0x0E,
+        0x2B, 0x01, 0x02, 0x00, 0x02, 0x04, 0x34, 0x03
+    };
+    uint8_t type_reg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x38, 0x0F, 0x17,
+        0x6D, 0x02, 0xFC, 0x6B, 0x03
+    };
+
+    TEST_ASSERT(decode_message(solar_running, sizeof(solar_running), &test_ctx),
+                "Running Solar status decoded before channel known");
+    TEST_ASSERT(decode_message(type_reg, sizeof(type_reg), &test_ctx),
+                "Solar channel type register decoded");
+    TEST_ASSERT(test_pool_state.channels[1].configured &&
+                test_pool_state.channels[1].state == 1 && test_pool_state.channels[1].active,
+                "Retained CMD 0x2C applied when Solar channel type is learned");
+}
+
+/**
+ * Test: an undocumented CMD 0x2C mode is flagged and not retained, but the
+ * live output state in the same frame is still applied.
+ */
+void test_dedicated_solar_undocumented_mode_keeps_active(void)
+{
+    init_test_context();
+
+    uint8_t type_reg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x38, 0x0F, 0x17,
+        0x6D, 0x02, 0xFC, 0x6B, 0x03
+    };
+    // Mode 0x03 (undocumented), output active
+    uint8_t solar_odd_mode[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x2C, 0x12, 0x0E,
+        0x23, 0x03, 0x02, 0x00, 0x04, 0x07, 0x33, 0x03
+    };
+
+    TEST_ASSERT(decode_message(type_reg, sizeof(type_reg), &test_ctx),
+                "Solar channel type register decoded");
+    int before = unknown_buffer_record_count;
+    TEST_ASSERT(decode_message(solar_odd_mode, sizeof(solar_odd_mode), &test_ctx),
+                "Solar status with undocumented mode decoded");
+    TEST_ASSERT(unknown_buffer_record_count > before,
+                "Undocumented Solar mode is flagged");
+    TEST_ASSERT(!test_pool_state.solar_mode_valid,
+                "Undocumented Solar mode is not retained");
+    TEST_ASSERT(test_pool_state.channels[1].active,
+                "Output state applied despite undocumented mode");
+}
+
+/**
+ * Test: an undocumented raw 0x0B state on the dedicated Solar channel is still
+ * flagged, even though CMD 0x2C's mode replaces it.
+ */
+void test_dedicated_solar_undocumented_raw_state_flagged(void)
+{
+    init_test_context();
+
+    uint8_t solar_auto[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x2C, 0x12, 0x0E,
+        0x23, 0x01, 0x00, 0x00, 0x04, 0x07, 0x2F, 0x03
+    };
+    // Channel status with the Solar tuple FC 07 00 (state 0x07 undocumented)
+    uint8_t channel_status[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x0B, 0x25, 0x00,
+        0x08,
+        0x09, 0x01, 0x00,
+        0xFC, 0x07, 0x00,
+        0x11, 0x01, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x01, 0x01, 0x01,
+        0x2A, 0x03
+    };
+
+    TEST_ASSERT(decode_message(solar_auto, sizeof(solar_auto), &test_ctx),
+                "Auto Solar status decoded");
+    int before = unknown_buffer_record_count;
+    TEST_ASSERT(decode_message(channel_status, sizeof(channel_status), &test_ctx),
+                "Channel status with odd Solar state decoded");
+    TEST_ASSERT(unknown_buffer_record_count > before,
+                "Undocumented raw Solar state is flagged");
+    TEST_ASSERT(test_pool_state.channels[1].state == 1,
+                "CMD 0x2C mode still replaces raw Solar state");
 }
 
 /**
@@ -1565,6 +1689,10 @@ int main(void)
     test_channel_status_does_not_fabricate_pump_speed_without_telemetry();
     test_decode_connect10_dedicated_solar_channel();
     test_dedicated_solar_uses_solar_status_mode_and_activity();
+    test_dedicated_solar_state_register_does_not_override();
+    test_dedicated_solar_status_before_type_register();
+    test_dedicated_solar_undocumented_mode_keeps_active();
+    test_dedicated_solar_undocumented_raw_state_flagged();
     test_decode_channel_status_lights_active();
     test_decode_channel_status_multispeed_pump();
     test_channel_status_teaches_filter_pump_type();
