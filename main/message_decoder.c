@@ -112,9 +112,8 @@ static const char *MSG_TYPE_VALVE_ACTUATOR_CMD =    "02 00 50 00 7F 80 00 41 0E 
 // Water temperature reading (CMD 0x16) is dispatched source-agnostically in
 // dispatch_message() — see PROTOCOL.md command `0x16`. Observed from the
 // Connect 8/10 Controller (0x0062, LEN 0x0E, 2-byte payload temp1+temp2),
-// the Genus/Viron Heater family (0x0070/0x0071/0x0072, LEN 0x0D,
-// 1-byte payload temp1 only),
-// and the ICI Gas Heater (0x0074, LEN 0x0D, 1-byte payload temp1 only).
+// and the heater devices — Genus 0x0070, Viron 0x0071, HiNRG 0x0072 and
+// ICI 0x0074 (LEN 0x0D, 1-byte payload temp1 only).
 
 // 62 Connect 8/10 Controller
 static const char *MSG_TYPE_CONTROLLER_UNKNOWN2B =  "02 00 62 00 50 80 00 2B 0E 6D";
@@ -712,7 +711,7 @@ static void state_unlock(message_decoder_context_t *ctx, bool touched, pool_stat
  *
  * Payload layouts (selected by LENGTH byte / payload_len):
  *  - LEN 0x0E (e.g. 0x0062 Connect 8/10): 2-byte payload `{temp1, temp2}` in °C.
- *  - LEN 0x0D (e.g. 0x0070/0x0072 Genus Heater family): 1-byte payload `{temp1}`.
+ *  - LEN 0x0D (heater devices 0x0070/0x0071/0x0072/0x0074): 1-byte payload `{temp1}`.
  *
  * CMD 0x16 is the canonical source — it writes temp1/temp2 onto the source's
  * `seen_device_t` entry (looked up by the message's source address) and

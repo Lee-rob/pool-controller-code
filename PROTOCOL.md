@@ -171,7 +171,7 @@ The families group by function:
 | `0x0064` |        | 4     |                                   | Other Device (6,4)     | |
 | `0x006F` |        | 15    |                                   | Other Device (6,15)    | Internal Channels: a sub-address the Touchscreen writes to (see below) |
 | `0x0070` | 7      | 0     | Heaters                           | Genus Heater           | Observed on the bus |
-| `0x0071` |        | 1     |                                   | Viron Heater           | |
+| `0x0071` |        | 1     |                                   | Viron Heater           | Observed on the bus as a Viron Gas Heater |
 | `0x0072` |        | 2     |                                   | HiNRG Heater           | Observed on the bus |
 | `0x0073` |        | 3     |                                   | Other Device (7,3)     | |
 | `0x0074` |        | 4     |                                   | Other Device (7,4)     | Observed on the bus as an ICI Gas Heater |
@@ -795,7 +795,11 @@ Notes:
 
 #### Gas Heaters: Viron (`0x0071`), HiNRG (`0x0072`) & ICI (`0x0074`) ✅
 
-Pattern: `02 00 74 FF FF 80 00 12 10 16`
+Pattern (`0x0071`): `02 00 71 FF FF 80 00 12 10 13` (Viron Gas Heater)
+Pattern (`0x0072`): `02 00 72 FF FF 80 00 12 10 14` (HiNRG Gas Heater)
+Pattern (`0x0074`): `02 00 74 FF FF 80 00 12 10 16` (ICI Gas Heater)
+
+All three send the same four-byte payload; only the source address (and so the header checksum) differs. The examples below are from the ICI Gas Heater (`0x0074`).
 
 Examples:
 
@@ -806,6 +810,12 @@ Examples:
 02 00 74 FF FF 80 00 12 10 16 00 07 00 00 07 03   Igniting
 02 00 74 FF FF 80 00 12 10 16 00 0F 00 00 0F 03   Heater Lit and Running
                                  ^^ Status byte
+```
+
+Viron Gas Heater (`0x0071`) example:
+
+```
+02 00 71 FF FF 80 00 12 10 13 00 0F 00 00 0F 03   Heater Lit and Running
 ```
 
 Data fields:
@@ -1066,7 +1076,7 @@ The touchscreen mirrors this reading into register `0x30`/slot `0x01` (same 2-by
 
 #### Genus Heater (`0x0070`) / Viron Gas Heater (`0x0071`) / HiNRG Gas Heater (`0x0072`) / ICI Gas Heater (`0x0074`) ✅
 
-When an Active i25 Evo (Genus) / HiNRG Gas Heater or ICI Gas Heater is fitted it broadcasts its own current water-temperature reading on the same CMD but with a shorter LENGTH (`0x0D`) and only one data byte.
+When an Active i25 Evo (Genus), Viron Gas Heater, HiNRG Gas Heater or ICI Gas Heater is fitted it broadcasts its own current water-temperature reading on the same CMD but with a shorter LENGTH (`0x0D`) and only one data byte.
 
 Pattern (`0x0070`): `02 00 70 FF FF 80 00 16 0D 13`
 Pattern (`0x0071`): `02 00 71 FF FF 80 00 16 0D 14`
@@ -1135,7 +1145,7 @@ Temperature scale (Celsius vs Fahrenheit) is set by [0x26 Configuration](#0x26--
 
 #### Genus Heater (`0x0070`) / Viron Gas Heater (`0x0071`) / HiNRG Gas Heater (`0x0072`) / ICI Gas Heater (`0x0074`) ✅
 
-When an Active i25 Evo (Genus) / HiNRG Gas Heater or ICI Gas Heater is fitted it broadcasts its own setpoints using the same CMD but a shorter LENGTH and a different payload — both heater setpoints in a single frame, °C only.
+When an Active i25 Evo (Genus), Viron Gas Heater, HiNRG Gas Heater or ICI Gas Heater is fitted it broadcasts its own setpoints using the same CMD but a shorter LENGTH and a different payload — both heater setpoints in a single frame, °C only.
 
 Pattern (`0x0070`): `02 00 70 FF FF 80 00 17 0E 15` (Genus Heater)
 Pattern (`0x0071`): `02 00 71 FF FF 80 00 17 0E 16` (Viron Gas Heater)
