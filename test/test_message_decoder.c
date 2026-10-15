@@ -1116,6 +1116,64 @@ void test_decode_register_write_gateway(void)
 }
 
 /**
+ * Test: Viron Chlorinator unknown countdown (CMD 0x38, reg 0xE9, slot 0x0B),
+ * answering the Internet Gateway's 0x39 poll — decoded, flagged undocumented
+ * Real payload: E9 0B 9C 31 00 00 (12700 units = 42 min 20 s)
+ */
+void test_decode_chlor_unknown_countdown(void)
+{
+    init_test_context();
+
+    uint8_t msg[] = {
+        0x02, 0x00, 0x84, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x12,  // Command / length (18)
+        0x4E,        // Header checksum
+        0xE9,        // Register 0xE9
+        0x0B,        // Slot 0x0B
+        0x9C, 0x31,  // 12700, little-endian
+        0x00, 0x00,  // Unknown, always 00 00
+        0xC1,        // Data checksum
+        0x03
+    };
+
+    int before = unknown_buffer_record_count;
+    bool decoded = decode_message(msg, sizeof(msg), &test_ctx);
+
+    TEST_ASSERT(decoded, "Chlorinator unknown countdown should be decoded");
+    TEST_ASSERT(unknown_buffer_record_count > before,
+                "Chlorinator unknown countdown should be recorded as undocumented");
+}
+
+/**
+ * Test: Viron Chlorinator unknown value (CMD 0x38, reg 0xEA, slot 0x0B) —
+ * decoded, flagged undocumented
+ * Real payload: EA 0B 28 23 00 00 (9000)
+ */
+void test_decode_chlor_unknown_value(void)
+{
+    init_test_context();
+
+    uint8_t msg[] = {
+        0x02, 0x00, 0x84, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x12,  // Command / length (18)
+        0x4E,        // Header checksum
+        0xEA,        // Register 0xEA
+        0x0B,        // Slot 0x0B
+        0x28, 0x23,  // 9000, little-endian
+        0x00, 0x00,  // Unknown, always 00 00
+        0x40,        // Data checksum
+        0x03
+    };
+
+    int before = unknown_buffer_record_count;
+    bool decoded = decode_message(msg, sizeof(msg), &test_ctx);
+
+    TEST_ASSERT(decoded, "Chlorinator unknown value should be decoded");
+    TEST_ASSERT(unknown_buffer_record_count > before,
+                "Chlorinator unknown value should be recorded as undocumented");
+}
+
+/**
  * Test: Register write command from the Viron Chlorinator (CMD 0x3A) —
  * light zone 1 state -> On, sent by the chlorinator's own app
  * Real message: 02 00 84 FF FF 80 00 3A 0F 4D C0 01 02 C3 03
@@ -1741,6 +1799,8 @@ int main(void)
     test_decode_channel_toggle_gateway();
     test_decode_channel_toggle_controller();
     test_decode_register_write_gateway();
+    test_decode_chlor_unknown_countdown();
+    test_decode_chlor_unknown_value();
     test_decode_register_write_chlorinator();
     test_decode_register_write_light_color();
 
