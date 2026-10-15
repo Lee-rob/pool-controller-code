@@ -1767,7 +1767,7 @@ solar configuration has been touched.
 - Byte 11: Solar mode (`0x00`=Off, `0x01`=Auto, `0x02`=On — same encoding as channel state)
 - Byte 12: Live Solar output state (`0x00`=inactive, `0x02`=active observed). This is authoritative for the dedicated Solar channel: in the same running capture, its `0x0B` tuple remained `FC 00 00` and CMD `0x0D` was `0x80` (Filter channel 8 only).
 - Byte 13: Unknown (`0x00` observed).
-- Byte 14: Unknown — has tracked byte 15 at (differential − 3) in all observed samples (`04`/`07`, `03`/`06`)
+- Byte 14: Unknown. Observed alongside byte 15 as `04`/`07`, `03`/`06` and `02`/`04`; the first two fit (differential − 3) but the output-active capture does not, so no relationship is established
 - Byte 15: Temperature differential in °C
 - Byte 16: Data checksum
 
@@ -1776,7 +1776,10 @@ solar configuration has been touched.
 - Decoded in code by `handle_solar_status_broadcast`. The mode and live output
   state are retained as authoritative for a dedicated Solar channel (`0xFC`),
   because that channel's CMD `0x0B` tuple remains `FC 00 00` even while Solar
-  is Auto and actively running.
+  is Auto and actively running. The retained values also replace the channel's
+  Channel State register (`0x8C`+N), and are applied when the channel is first
+  learned (from CMD `0x0B` or the Channel Type register). An undocumented mode
+  byte is not retained, but the output state in the same frame still is.
 
 ---
 

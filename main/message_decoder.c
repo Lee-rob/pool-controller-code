@@ -191,7 +191,7 @@ static const channel_type_entry_t CHANNEL_TYPE_TABLE[] = {
     {CHANNEL_TYPE_HEATER_POWER,     "Heater Power"},
     {CHANNEL_TYPE_CUSTOM_NAME,      "Custom Name"},
     {CHANNEL_TYPE_SECONDARY_HEATER, "Secondary Heater"},
-    {CHANNEL_TYPE_SOLAR_CONTROLLER, "Solar"},
+    {CHANNEL_TYPE_SOLAR_CONTROLLER, "Solar Controller"},
     {CHANNEL_TYPE_HEATER,           "Heater"},
     {CHANNEL_TYPE_LIGHT_ZONE,       "Light Zone"},
 };
@@ -2742,6 +2742,28 @@ static bool handle_solar_setpoint_broadcast(
 }
 
 /**
+ * Apply the retained CMD 0x2C Solar mode/output to a dedicated Solar channel
+ * (type 0xFC). Called wherever a channel's state may be written from another
+ * source (CMD 0x0B, the channel type and channel state registers), so CMD 0x2C
+ * stays the single authority for that channel once it has been seen.
+ * Caller must hold the state mutex. Returns true if the channel changed.
+ */
+static bool apply_solar_status(pool_state_t *ps, channel_state_t *ch)
+{
+    if (ch->type != CHANNEL_TYPE_SOLAR_CONTROLLER) return false;
+    bool changed = false;
+    if (ps->solar_mode_valid && ch->state != ps->solar_mode) {
+        ch->state = ps->solar_mode;
+        changed = true;
+    }
+    if (ps->solar_active_valid && ch->active != ps->solar_active) {
+        ch->active = ps->solar_active;
+        changed = true;
+    }
+    return changed;
+}
+
+/**
  * Handler: Solar status broadcast (CMD 0x2C)
  * Dispatched on the CMD byte alone (source-agnostic).
  *
@@ -2775,14 +2797,17 @@ static bool handle_solar_status_broadcast(
              solar_active ? "Active" : "Inactive", runtime_state,
              payload[5], payload[3]);
 
-    if (mode > 0x02) {
+    // An undocumented mode is not retained, but the live output state in the
+    // same frame is still applied.
+    bool mode_known = mode <= 0x02;
+    if (!mode_known) {
         ESP_LOGW(TAG, "%s Solar status has undocumented mode 0x%02X", addr_info, mode);
-        record_undocumented(data, len);
-        return true;
     }
     if (runtime_state > 0x02) {
         ESP_LOGW(TAG, "%s Solar status has undocumented runtime state 0x%02X",
                  addr_info, runtime_state);
+    }
+    if (!mode_known || runtime_state > 0x02) {
         record_undocumented(data, len);
     }
 
@@ -2791,24 +2816,25 @@ static bool handle_solar_status_broadcast(
     int num_to_publish = 0;
 
     if (state_lock(ctx, "solar status")) {
-        ctx->pool_state->solar_mode = mode;
-        ctx->pool_state->solar_mode_valid = true;
-        ctx->pool_state->solar_active = solar_active;
-        ctx->pool_state->solar_active_valid = true;
+        pool_state_t *ps = ctx->pool_state;
+        if (mode_known) {
+            ps->solar_mode = mode;
+            ps->solar_mode_valid = true;
+        }
+        ps->solar_active = solar_active;
+        ps->solar_active_valid = true;
 
         for (int i = 0; i < MAX_CHANNELS; i++) {
-            channel_state_t *channel = &ctx->pool_state->channels[i];
-            if (channel->configured && channel->type == CHANNEL_TYPE_SOLAR_CONTROLLER &&
-                (channel->state != mode || channel->active != solar_active)) {
-                channel->state = mode;
-                channel->active = solar_active;
+            channel_state_t *channel = &ps->channels[i];
+            if (channel->configured && apply_solar_status(ps, channel)) {
                 channels_to_publish[num_to_publish++] = (uint8_t)(i + 1);
             }
         }
-        state_unlock(ctx, true, &state_snapshot);
+        // Only take the (large) snapshot when there is something to publish
+        state_unlock(ctx, true, num_to_publish > 0 ? &state_snapshot : NULL);
     }
 
-    if (ctx->enable_mqtt) {
+    if (num_to_publish > 0 && ctx->enable_mqtt) {
         for (int i = 0; i < num_to_publish; i++) {
             mqtt_publish_channel(&state_snapshot, channels_to_publish[i]);
         }
@@ -2934,6 +2960,7 @@ static bool handle_channel_type(
         if (state_lock(ctx, "channel type")) {
             ctx->pool_state->channels[ch_num - 1].type = ch_type;
             ctx->pool_state->channels[ch_num - 1].configured = true;
+            apply_solar_status(ctx->pool_state, &ctx->pool_state->channels[ch_num - 1]);
             state_unlock(ctx, true, NULL);
         }
     }
@@ -3014,12 +3041,16 @@ static bool handle_channel_state(
     bool changed = false;
     if (state_lock(ctx, "channel state")) {
         channel_state_t *ch = &ctx->pool_state->channels[ch_num - 1];
+        uint8_t prev_state = ch->state;
         // State registers are broadcast for unused channels too (e.g. in the
         // periodic register dump) — only a known channel type marks it in use
         if (ch->type != CHANNEL_TYPE_UNUSED && (!ch->configured || ch->state != state)) {
             ch->state = state;
+            // A dedicated Solar channel's state register is as stale as its
+            // CMD 0x0B tuple — CMD 0x2C's mode wins once it has been seen
+            apply_solar_status(ctx->pool_state, ch);
+            changed = !ch->configured || ch->state != prev_state;
             ch->configured = true;
-            changed = true;
         }
         state_unlock(ctx, changed, &state_snapshot);
     }
@@ -3708,17 +3739,6 @@ static bool handle_channel_status(
             uint8_t state   = payload[payload_idx + 1];
             uint8_t active  = payload[payload_idx + 2];
 
-            // The dedicated Solar controller does not put its actual mode or
-            // output state in CMD 0x0B. Preserve the authoritative CMD 0x2C
-            // values instead of replacing them with the observed FC 00 00.
-            if (ch_type == CHANNEL_TYPE_SOLAR_CONTROLLER) {
-                if (ctx->pool_state->solar_mode_valid) {
-                    state = ctx->pool_state->solar_mode;
-                }
-                if (ctx->pool_state->solar_active_valid) {
-                    active = ctx->pool_state->solar_active ? 1 : 0;
-                }
-            }
             const char *state_name = (state < CHANNEL_STATE_COUNT) ? CHANNEL_STATE_NAMES[state] : "Unknown";
 
             if (ch_type == CHANNEL_TYPE_UNUSED) {
@@ -3742,6 +3762,11 @@ static bool handle_channel_status(
                 ctx->pool_state->channels[ch_num - 1].state = state;
                 ctx->pool_state->channels[ch_num - 1].active = (active != 0);
                 ctx->pool_state->channels[ch_num - 1].configured = true;
+                // The dedicated Solar controller does not put its actual mode
+                // or output state in CMD 0x0B (the tuple stays FC 00 00), so
+                // the CMD 0x2C values replace it. Done after the undocumented
+                // check above, which must see the raw state byte.
+                apply_solar_status(ctx->pool_state, &ctx->pool_state->channels[ch_num - 1]);
 
 
                 if (ch_type == CHANNEL_TYPE_FILTER) {
