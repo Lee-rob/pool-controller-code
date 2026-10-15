@@ -1,0 +1,31 @@
+# Channel Category registers (0xF5-0xFC, slot 0x01) next to the channel types
+# (0x6C-0x73, slot 0x02), from the reference install with a Secondary Heater
+# configured on Channel 8.
+#
+# The Heater channel (type 0xFD) reports category 0x03 Controlled Heater Power,
+# and the Secondary Heater channel (type 0xFB) reports category 0x05.
+
+
+# Channel status: Ch7 = Heater (0xFD), Ch8 = Secondary Heater (0xFB)
+I (06:57:46.023) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 0B 25 00 08 01 00 00 02 00 00 FE 00 00 FE 00 00 0B 00 00 09 00 00 FD 00 00 FB 00 00 13 03
+I (06:57:46.023) MSG_DECODER: [Touch Screen -> Broadcast] Channel status (8 channels):
+I (06:57:46.023) MSG_DECODER:   Ch1: Filter (1) = Off (Inactive)
+I (06:57:46.023) MSG_DECODER:   Ch2: Cleaning (2) = Off (Inactive)
+I (06:57:46.023) MSG_DECODER:   Ch3: Light Zone (254) = Off (Inactive)
+I (06:57:46.023) MSG_DECODER:   Ch4: Light Zone (254) = Off (Inactive)
+I (06:57:46.023) MSG_DECODER:   Ch5: Jets (11) = Off (Inactive)
+I (06:57:46.023) MSG_DECODER:   Ch6: Blower (9) = Off (Inactive)
+I (06:57:46.023) MSG_DECODER:   Ch7: Heater (253) = Off (Inactive)
+I (06:57:46.023) MSG_DECODER:   Ch8: Secondary Heater (251) = Off (Inactive)
+
+# Categories for Ch7 and Ch8
+I (06:58:26.773) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 FB 01 03 FF 03
+I (06:58:26.773) MSG_DECODER: [Touch Screen -> Broadcast] Channel 7 category - Controlled Heater Power (3)
+I (06:58:26.903) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 FC 01 05 02 03
+I (06:58:26.903) MSG_DECODER: [Touch Screen -> Broadcast] Channel 8 category - Secondary Heater (5)
+
+# Channel types for Ch7 and Ch8
+I (06:58:41.783) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 72 02 FD 71 03
+I (06:58:41.783) MSG_DECODER: [Touch Screen -> Broadcast] Channel 7 type - Heater (253)
+I (06:58:41.903) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 73 02 FB 70 03
+I (06:58:41.903) MSG_DECODER: [Touch Screen -> Broadcast] Channel 8 type - Secondary Heater (251)
