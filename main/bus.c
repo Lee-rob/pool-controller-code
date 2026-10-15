@@ -4,10 +4,36 @@
 #include "esp_log.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
 
 static const char *TAG = "BUS";
+static SemaphoreHandle_t s_tx_mutex = NULL;
+static volatile TickType_t s_last_rx_tick = 0;
+
+static bool wait_for_bus_idle(void)
+{
+    const TickType_t guard_ticks = pdMS_TO_TICKS(BUS_IDLE_GUARD_MS) > 0
+                                     ? pdMS_TO_TICKS(BUS_IDLE_GUARD_MS) : 1;
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(BUS_IDLE_WAIT_TIMEOUT_MS);
+    const TickType_t start = xTaskGetTickCount();
+
+    while (1) {
+        TickType_t now = xTaskGetTickCount();
+        TickType_t last_rx = __atomic_load_n(&s_last_rx_tick, __ATOMIC_ACQUIRE);
+        if ((TickType_t)(now - last_rx) >= guard_ticks) {
+            return true;
+        }
+        if ((TickType_t)(now - start) >= timeout_ticks) {
+            return false;
+        }
+        vTaskDelay(1);
+    }
+}
 
 // ======================================================
 // Bus (UART) init
@@ -58,6 +84,13 @@ void bus_init(void)
     //   => bus sees normal idle-high UART.
     ESP_ERROR_CHECK(uart_set_line_inverse(BUS_UART_NUM, UART_SIGNAL_TXD_INV));
 
+    s_tx_mutex = xSemaphoreCreateMutex();
+    if (s_tx_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create bus TX mutex");
+        abort();
+    }
+    __atomic_store_n(&s_last_rx_tick, xTaskGetTickCount(), __ATOMIC_RELEASE);
+
     ESP_LOGI(TAG, "Bus UART initialised: UART%d, RX=%d, TX=%d, baud=%d",
              BUS_UART_NUM, BUS_RX_GPIO, BUS_TX_GPIO, BUS_BAUD_RATE);
 }
@@ -68,7 +101,12 @@ void bus_init(void)
 
 int bus_read(uint8_t *buffer, size_t max_len, uint32_t timeout_ms)
 {
-    return uart_read_bytes(BUS_UART_NUM, buffer, max_len, timeout_ms / portTICK_PERIOD_MS);
+    int count = uart_read_bytes(BUS_UART_NUM, buffer, max_len,
+                                timeout_ms / portTICK_PERIOD_MS);
+    if (count > 0) {
+        __atomic_store_n(&s_last_rx_tick, xTaskGetTickCount(), __ATOMIC_RELEASE);
+    }
+    return count;
 }
 
 // ======================================================
@@ -79,6 +117,19 @@ int bus_send_bytes(const uint8_t *data, size_t len)
 {
     if (data == NULL || len == 0) {
         ESP_LOGE(TAG, "bus_send_bytes: null or empty buffer");
+        return -1;
+    }
+
+    if (s_tx_mutex == NULL ||
+        xSemaphoreTake(s_tx_mutex, pdMS_TO_TICKS(BUS_TX_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGW(TAG, "TX skipped: transmitter busy");
+        return -1;
+    }
+
+    if (!wait_for_bus_idle()) {
+        ESP_LOGW(TAG, "TX skipped: bus did not remain idle for %d ms",
+                 BUS_IDLE_GUARD_MS);
+        xSemaphoreGive(s_tx_mutex);
         return -1;
     }
 
@@ -103,8 +154,10 @@ int bus_send_bytes(const uint8_t *data, size_t len)
 
     // Send to UART
     int written = uart_write_bytes(BUS_UART_NUM, (const char *)data, len);
-    if (written < 0) {
-        ESP_LOGE(TAG, "bus_send_bytes: uart_write_bytes failed");
+    if (written != (int)len) {
+        ESP_LOGE(TAG, "bus_send_bytes: uart_write_bytes wrote %d of %d bytes",
+                 written, (int)len);
+        xSemaphoreGive(s_tx_mutex);
         return -1;
     }
 
@@ -112,12 +165,15 @@ int bus_send_bytes(const uint8_t *data, size_t len)
     esp_err_t tx_err = uart_wait_tx_done(BUS_UART_NUM, pdMS_TO_TICKS(UART_TX_TIMEOUT_MS));
     if (tx_err != ESP_OK) {
         ESP_LOGE(TAG, "bus_send_bytes: uart_wait_tx_done failed: %s", esp_err_to_name(tx_err));
+        xSemaphoreGive(s_tx_mutex);
         return -1;
     }
 
     ESP_LOGI(TAG, "TX complete: %d bytes written and transmitted", written);
 
     led_flash_tx();
+
+    xSemaphoreGive(s_tx_mutex);
 
     return written;
 }
