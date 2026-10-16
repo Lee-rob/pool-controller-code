@@ -2,7 +2,7 @@ name: Build & Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, viron71-controls-v1.17.0]
     tags: ['v*']
   pull_request:
     branches: [main]
