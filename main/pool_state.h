@@ -58,7 +58,7 @@ typedef enum {
     CHANNEL_TYPE_HOT_SEAT         = 0x10,
     CHANNEL_TYPE_HEATER_POWER     = 0x11,
     CHANNEL_TYPE_CUSTOM_NAME      = 0x12,
-    CHANNEL_TYPE_SECONDARY_HEATER = 0xFB,
+    CHANNEL_TYPE_SECONDARY_HEATER = 0xFB, // Heater 2's power channel (handled separately, like CHANNEL_TYPE_HEATER)
     CHANNEL_TYPE_SOLAR_CONTROLLER = 0xFC, // Dedicated temperature-controlled Solar
     CHANNEL_TYPE_HEATER           = 0xFD, // Channel is a heater (handled separately)
     CHANNEL_TYPE_LIGHT_ZONE       = 0xFE, // Channel is a lighting zone (handled separately)
@@ -114,12 +114,6 @@ typedef struct {
     bool valid;
 
     bool on;
-
-    // true once a dedicated heater device (Genus 0x0070, Viron 0x0071, HiNRG
-    // 0x0072, ICI 0x0074) has reported its own CMD 0x12 status. The Connect 8/10's CMD 0x12
-    // heater bit then stops writing `on` — on installs with an external heater
-    // that bit does not track it (observed stuck at 0 while the heater ran).
-    bool device_reported;
 
     // Temperature setpoints (per heater): 0xE7/0xE8 (Heater 1), 0xEA/0xEB (Heater 2)
     uint8_t pool_setpoint;     // °C
@@ -216,6 +210,11 @@ typedef struct {
 #define MULTICOLOR_LIGHT_TYPE_DELTA 0x01
 #define MULTICOLOR_LIGHT_TYPE_NONE  0xFF  // no multicolor light configured
 
+// Heater 1 type (register 0xC8, slot 0x00)
+#define HEATER1_TYPE_NONE             0x00
+#define HEATER1_TYPE_GENUS            0x01  // Genus - smart-control heater on the bus (Genus, Viron, HiNRG, ICI)
+#define HEATER1_TYPE_CONNECT_INBUILT  0x03  // Power switched through a controller channel
+
 typedef struct {
     char name[32];        // Label from register 0x31+index, slot 0x03
     bool enabled;         // Enable flag from register 0x21+index, slot 0x03
@@ -230,6 +229,14 @@ typedef struct {
 
     // Heaters (up to MAX_HEATERS)
     pool_heater_t heaters[MAX_HEATERS];
+
+    // Heater configuration, as the Touchscreen reports it. Heater 1's type
+    // (register 0xC8, slot 0x00) is a HEATER1_TYPE_* code; a second heater
+    // (register 0xCC, slot 0x00) can only be Connect Inbuilt, so it is a flag.
+    uint8_t heater1_type;
+    bool heater1_type_valid;
+    bool heater2_configured;
+    bool heater2_configured_valid;
 
     // Mode
     uint8_t mode;  // MODE_SPA (0x00) or MODE_POOL (0x01)
@@ -364,6 +371,19 @@ typedef struct {
     // Last update timestamp (milliseconds since boot)
     uint32_t last_update_ms;
 } pool_state_t;
+
+// Whether heater slot `index` (0 = Heater 1, 1 = Heater 2) is configured, from
+// the Touchscreen's heater configuration registers (0xC8, 0xCC). Sets *known
+// to false, and returns false, until that register has been received.
+static inline bool heater_configured(const pool_state_t *state, int index, bool *known)
+{
+    if (index == 0) {
+        *known = state->heater1_type_valid;
+        return state->heater1_type_valid && state->heater1_type != HEATER1_TYPE_NONE;
+    }
+    *known = state->heater2_configured_valid;
+    return state->heater2_configured_valid && state->heater2_configured;
+}
 
 // Global pool state (defined in main.c)
 extern pool_state_t s_pool_state;

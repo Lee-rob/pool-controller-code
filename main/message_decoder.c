@@ -991,8 +991,8 @@ static bool handle_heater2_state(
 /**
  * Handler: Heater 2 configured flag
  * Register 0xCC, Slot 0x00 (0x01 = second heater configured, 0x00 = not).
- * Log-only. While set, the Touchscreen's periodic dump carries the Heater 2
- * registers (0xE9-0xEB) instead of the Heater 1 ones (0xE6-0xE8).
+ * While set, the Touchscreen's periodic dump carries the Heater 2 registers
+ * (0xE9-0xEB) instead of the Heater 1 ones (0xE6-0xE8).
  */
 static bool handle_heater2_configured(
     const uint8_t *data, int len,
@@ -1011,13 +1011,25 @@ static bool handle_heater2_configured(
 
     ESP_LOGI(TAG, "%s Heater 2 configured - %s", addr_info, configured ? "Yes" : "No");
 
+    pool_state_t snapshot;
+    if (state_lock(ctx, "heater 2 configured")) {
+        bool changed = !ctx->pool_state->heater2_configured_valid ||
+                       ctx->pool_state->heater2_configured != (configured != 0);
+        ctx->pool_state->heater2_configured       = (configured != 0);
+        ctx->pool_state->heater2_configured_valid = true;
+        state_unlock(ctx, true, &snapshot);
+
+        if (changed && ctx->enable_mqtt) {
+            mqtt_publish_heater_config(&snapshot, 1);
+        }
+    }
+
     return true;
 }
 
 /**
  * Handler: Heater 1 type
  * Register 0xC8, Slot 0x00 (0x00 = none, 0x01 = Genus (Gas), 0x03 = Connect Inbuilt).
- * Log-only.
  */
 static bool handle_heater1_type(
     const uint8_t *data, int len,
@@ -1040,6 +1052,19 @@ static bool handle_heater1_type(
     }
 
     ESP_LOGI(TAG, "%s Heater 1 type - %s (%d)", addr_info, name, type);
+
+    pool_state_t snapshot;
+    if (state_lock(ctx, "heater 1 type")) {
+        bool changed = !ctx->pool_state->heater1_type_valid ||
+                       ctx->pool_state->heater1_type != type;
+        ctx->pool_state->heater1_type       = type;
+        ctx->pool_state->heater1_type_valid = true;
+        state_unlock(ctx, true, &snapshot);
+
+        if (changed && ctx->enable_mqtt) {
+            mqtt_publish_heater_config(&snapshot, 0);
+        }
+    }
 
     return true;
 }
@@ -1255,13 +1280,14 @@ static bool handle_gas_heater_status(
             addr_info, general_service_required ? "true" : "false", ignition_service_required ? "true" : "false");
     }
 
-    // Update state and publish
+    // Update state and publish. A Genus (smart-control) heater on the bus can
+    // only be Heater 1: a second heater is always Connect Inbuilt, switched
+    // through a controller channel rather than a device of its own.
     pool_state_t snapshot;
     if (!state_lock(ctx, "gas heater status")) return true;
     pool_heater_t* const heater_state = &(ctx->pool_state->heaters[0]);
     heater_state->valid = true;
     heater_state->on = heater_on;
-    heater_state->device_reported = true;
 
     heater_state->gas_heater_valid = true;
     heater_state->water_flow_detected = water_flow_detected;
@@ -1331,12 +1357,13 @@ static bool handle_genus_heater_status(
              addr_info, payload[0], payload[1], payload[2], payload[3], status_name);
 
     // Update state and publish. The Genus is Heater 1 on systems that carry
-    // it (the Gateway drives it via register 0xE6, Heater 1 On/Off).
+    // it (the Gateway drives it via register 0xE6, Heater 1 On/Off), as any
+    // Genus (smart-control) heater on the bus must be: a second heater is
+    // always Connect Inbuilt.
     pool_state_t snapshot;
     if (!state_lock(ctx, "Genus heater status")) return true;
     ctx->pool_state->heaters[0].on = heater_on;
     ctx->pool_state->heaters[0].valid = true;
-    ctx->pool_state->heaters[0].device_reported = true;
     state_unlock(ctx, true, &snapshot);
 
     if (ctx->enable_mqtt) {
@@ -1364,8 +1391,8 @@ static bool handle_genus_heater_status(
  * The frame does not identify which controller heater slot the device occupies,
  * and it is not always Heater 1 — on the two-heater install in PROTOCOL.md
  * Appendix A the Genus heat pump's values match 0xEA/0xEB. So the values are
- * applied only while nothing has been seen about Heater 2. Once a second heater
- * is known the attribution is ambiguous and this stays log-only, leaving 
+ * applied only once register 0xCC says there is no second heater. While one is
+ * configured, or before 0xCC has been received, this stays log-only, leaving
  * handle_temp_setpoint authoritative.
  *
  * A heater that isn't plumbed to both circuits broadcasts the 0x0A (10°C)
@@ -1393,11 +1420,13 @@ static bool handle_heater_temp_setting(
     pool_state_t snapshot;
     if (!state_lock(ctx, "heater device setpoints")) return true;
 
-    const pool_heater_t *heater2 = &ctx->pool_state->heaters[1];
-    if (heater2->valid || heater_setpoint_valid(heater2)) {
+    bool heater2_known;
+    bool heater2_present = heater_configured(ctx->pool_state, 1, &heater2_known);
+    if (!heater2_known || heater2_present) {
         state_unlock(ctx, false, NULL);
-        ESP_LOGD(TAG, "%s setpoints not applied - Heater 2 present, heater slot unknown",
-                 heater_name);
+        ESP_LOGD(TAG, "%s setpoints not applied - %s", heater_name,
+                 heater2_known ? "Heater 2 configured, heater slot unknown"
+                               : "heater configuration not yet known");
         return true;
     }
 
@@ -1431,12 +1460,13 @@ static bool handle_heater_temp_setting(
 /**
  * Handler: Connect 8/10 Controller device status (CMD 0x12, source 0x0062)
  *
- * The controller's own view of Heater 1. On installs carrying a dedicated
- * heater device (Genus 0x0070, Viron 0x0071, HiNRG 0x0072, ICI 0x0074) that
- * device's CMD 0x12
- * status is authoritative and this frame's heater bit is ignored: it has been
- * observed stuck at 0 for the whole time an external gas heater was running
- * (payload `04 00 00`), which pinned the Home Assistant switch to OFF. Service
+ * The controller's own view of Heater 1. Its heater bit is used only when
+ * register 0xC8 says Heater 1 is Connect Inbuilt, i.e. powered through a
+ * controller channel that the controller switches. A Genus (smart-control)
+ * heater (Genus 0x0070, Viron 0x0071, HiNRG 0x0072, ICI 0x0074) reports its
+ * own CMD 0x12 status, which is authoritative: this bit has been observed
+ * stuck at 0 for the whole time such a heater was running (payload
+ * `04 00 00`). Before 0xC8 has been received the bit is not used. Service
  * mode comes from here either way.
  */
 static bool handle_heater(
@@ -1469,7 +1499,8 @@ static bool handle_heater(
     // Update state and publish
     pool_state_t snapshot;
     if (!state_lock(ctx, "heater state")) return true;
-    bool heater_is_ours = !ctx->pool_state->heaters[0].device_reported;
+    bool heater_is_ours = ctx->pool_state->heater1_type_valid &&
+                          ctx->pool_state->heater1_type == HEATER1_TYPE_CONNECT_INBUILT;
     if (heater_is_ours) {
         ctx->pool_state->heaters[0].on = heater_on;
         ctx->pool_state->heaters[0].valid = true;

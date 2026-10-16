@@ -1,0 +1,32 @@
+# Heater 2 Configured (0xCC, slot 0x00), from the reference install.
+#
+# With a second heater configured on Channel 8, the Touchscreen's periodic
+# dump sends 0xCC = 0x01 followed by the Heater 2 trio (0xE9-0xEB). The second
+# heater is then removed at the Touchscreen: 0xCC drops to 0x00, and the
+# Secondary Heater channel (and the Heater channel, as Heater 1 was changed to
+# gas at the same time) leaves the CMD 0x0B channel list.
+
+
+# Second heater configured: flag, then the Heater 2 trio
+I (07:03:46.303) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 CC 00 01 CD 03
+I (07:03:46.303) MSG_DECODER: [Touch Screen -> Broadcast] Heater 2 configured - Yes
+I (07:03:46.553) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E9 00 00 E9 03
+I (07:03:46.553) MSG_DECODER: [Touch Screen -> Broadcast] Heater 2 state - Off (0x00)
+I (07:03:46.673) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 EA 00 0A F4 03
+I (07:03:46.673) MSG_DECODER: [Touch Screen -> Broadcast] Heater 2 Pool setpoint - 10°C
+I (07:03:46.804) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 EB 00 0A F5 03
+I (07:03:46.804) MSG_DECODER: [Touch Screen -> Broadcast] Heater 2 Spa setpoint - 10°C
+
+# Second heater removed
+I (07:04:31.633) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 CC 00 00 CC 03
+I (07:04:31.633) MSG_DECODER: [Touch Screen -> Broadcast] Heater 2 configured - No
+I (07:04:40.523) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 0B 25 00 08 01 00 00 02 00 00 FE 00 00 FE 00 00 0B 00 00 09 00 00 00 00 00 00 00 00 1B 03
+I (07:04:40.523) MSG_DECODER: [Touch Screen -> Broadcast] Channel status (8 channels):
+I (07:04:40.523) MSG_DECODER:   Ch1: Filter (1) = Off (Inactive)
+I (07:04:40.523) MSG_DECODER:   Ch2: Cleaning (2) = Off (Inactive)
+I (07:04:40.523) MSG_DECODER:   Ch3: Light Zone (254) = Off (Inactive)
+I (07:04:40.523) MSG_DECODER:   Ch4: Light Zone (254) = Off (Inactive)
+I (07:04:40.523) MSG_DECODER:   Ch5: Jets (11) = Off (Inactive)
+I (07:04:40.523) MSG_DECODER:   Ch6: Blower (9) = Off (Inactive)
+I (07:04:40.523) MSG_DECODER:   Ch7: Unused
+I (07:04:40.523) MSG_DECODER:   Ch8: Unused

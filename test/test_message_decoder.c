@@ -45,6 +45,13 @@ void mqtt_publish_heater_setpoints(const pool_state_t *state, int index) {}
 void mqtt_publish_temperature_reading(const pool_state_t *state, int dev_idx, uint8_t sensor_index) {}
 void mqtt_publish_heater(const pool_state_t *state, int index) {}
 void mqtt_publish_gas_heater(const pool_state_t *state, int index) {}
+static int heater_config_publishes = 0;
+static int last_heater_config_index = -1;
+void mqtt_publish_heater_config(const pool_state_t *state, int index)
+{
+    heater_config_publishes++;
+    last_heater_config_index = index;
+}
 void mqtt_publish_chlorinator(const pool_state_t *state) {}
 void mqtt_publish_pump(const pool_state_t *state) {}
 void mqtt_publish_service_mode(const pool_state_t *state) {}
@@ -72,6 +79,16 @@ static void init_test_context(void)
     test_ctx.pool_state = &test_pool_state;
     test_ctx.state_mutex = (SemaphoreHandle_t)&dummy_mutex;
     test_ctx.enable_mqtt = false;
+}
+
+// Helper to set the heater configuration, as registers 0xC8 (Heater 1 Type)
+// and 0xCC (Heater 2 Configured) report it
+static void set_heater_config(uint8_t heater1_type, bool heater2_configured)
+{
+    test_pool_state.heater1_type             = heater1_type;
+    test_pool_state.heater1_type_valid       = true;
+    test_pool_state.heater2_configured       = heater2_configured;
+    test_pool_state.heater2_configured_valid = true;
 }
 
 #define TEST_ASSERT(condition, message) \
@@ -271,6 +288,7 @@ void test_heater2_setpoint_registers(void)
 void test_heater_device_setpoint_broadcast(void)
 {
     init_test_context();
+    set_heater_config(HEATER1_TYPE_GENUS, false);
 
     uint8_t msg[] = {
         0x02,                   // Byte 0: Start
@@ -300,6 +318,7 @@ void test_heater_device_setpoint_broadcast(void)
 void test_viron_heater_setpoint_broadcast(void)
 {
     init_test_context();
+    set_heater_config(HEATER1_TYPE_GENUS, false);
 
     uint8_t msg[] = {
         0x02, 0x00, 0x71, 0xFF, 0xFF, 0x80, 0x00,
@@ -326,6 +345,7 @@ void test_viron_heater_setpoint_broadcast(void)
 void test_heater_device_setpoint_unplumbed_circuit(void)
 {
     init_test_context();
+    set_heater_config(HEATER1_TYPE_GENUS, false);
 
     // A spa setpoint already known from register 0xE8 must survive the broadcast
     test_pool_state.heaters[0].spa_setpoint       = 29;
@@ -348,15 +368,16 @@ void test_heater_device_setpoint_unplumbed_circuit(void)
 }
 
 /**
- * Test: heater device setpoint broadcast on a two-heater install. Once anything
- * has reported Heater 2, the broadcast cannot be attributed to a slot and must
- * not write Heater 1 — the register broadcasts stay authoritative.
+ * Test: heater device setpoint broadcast before register 0xCC has been
+ * received. Nothing is assumed about a second heater, even with Heater 2's
+ * registers seen, so the broadcast must not write Heater 1 — the register
+ * broadcasts stay authoritative.
  */
-void test_heater_device_setpoint_two_heaters(void)
+void test_heater_device_setpoint_config_unknown(void)
 {
     init_test_context();
 
-    // Register 0xEA (Heater 2 pool setpoint) = 0x1B (27°C) — marks a second heater
+    // Register 0xEA (Heater 2 pool setpoint) = 0x1B (27°C)
     uint8_t reg_msg[] = {
         0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
         0x38, 0x0F, 0x17,
@@ -378,9 +399,229 @@ void test_heater_device_setpoint_two_heaters(void)
     bool decoded = decode_message(msg, sizeof(msg), &test_ctx);
 
     TEST_ASSERT(decoded, "Heater device setpoint broadcast should be decoded");
-    TEST_ASSERT(!heater_setpoint_valid(&test_pool_state.heaters[0]), "Heater 1 setpoint should stay unset with two heaters");
+    TEST_ASSERT(!heater_setpoint_valid(&test_pool_state.heaters[0]), "Heater 1 setpoint should stay unset before 0xCC arrives");
     TEST_ASSERT(test_pool_state.heaters[0].pool_setpoint == 0, "Heater 1 pool setpoint should not be written");
     TEST_ASSERT(test_pool_state.heaters[0].spa_setpoint == 0, "Heater 1 spa setpoint should not be written");
+}
+
+/**
+ * Test: heater device setpoint broadcast after the second heater is removed.
+ * Heater 2's registers have been seen, but register 0xCC now says no second
+ * heater is configured, so the broadcast belongs to Heater 1.
+ */
+void test_heater_device_setpoint_heater2_removed(void)
+{
+    init_test_context();
+
+    // Register 0xEA (Heater 2 pool setpoint) = 0x1B (27°C) — from before the removal
+    uint8_t reg_msg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xEA, 0x00, 0x1B,
+        0x05,
+        0x03
+    };
+    decode_message(reg_msg, sizeof(reg_msg), &test_ctx);
+
+    // Register 0xCC (Heater 2 Configured) = 0x00
+    uint8_t cc_msg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xCC, 0x00, 0x00,
+        0xCC,
+        0x03
+    };
+    decode_message(cc_msg, sizeof(cc_msg), &test_ctx);
+
+    uint8_t msg[] = {
+        0x02, 0x00, 0x74, 0xFF, 0xFF, 0x80, 0x00,
+        0x17, 0x0E, 0x19,
+        0x1D,                   // Byte 10: Spa setpoint 29°C
+        0x11,                   // Byte 11: Pool setpoint 17°C
+        0x2E,                   // Byte 12: Data checksum
+        0x03
+    };
+
+    bool decoded = decode_message(msg, sizeof(msg), &test_ctx);
+
+    TEST_ASSERT(decoded, "Heater device setpoint broadcast should be decoded");
+    TEST_ASSERT(test_pool_state.heaters[0].spa_setpoint == 29, "Heater 1 spa setpoint should be 29°C");
+    TEST_ASSERT(test_pool_state.heaters[0].pool_setpoint == 17, "Heater 1 pool setpoint should be 17°C");
+}
+
+/**
+ * Test: heater device setpoint broadcast while register 0xCC says a second
+ * heater is configured, before anything else about Heater 2 has arrived. The
+ * broadcast cannot be attributed to a slot, so Heater 1 is left alone.
+ */
+void test_heater_device_setpoint_heater2_configured(void)
+{
+    init_test_context();
+
+    // Register 0xCC (Heater 2 Configured) = 0x01
+    uint8_t cc_msg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xCC, 0x00, 0x01,
+        0xCD,
+        0x03
+    };
+    decode_message(cc_msg, sizeof(cc_msg), &test_ctx);
+
+    uint8_t msg[] = {
+        0x02, 0x00, 0x74, 0xFF, 0xFF, 0x80, 0x00,
+        0x17, 0x0E, 0x19,
+        0x1D,                   // Byte 10: Spa setpoint 29°C
+        0x11,                   // Byte 11: Pool setpoint 17°C
+        0x2E,                   // Byte 12: Data checksum
+        0x03
+    };
+
+    bool decoded = decode_message(msg, sizeof(msg), &test_ctx);
+
+    TEST_ASSERT(decoded, "Heater device setpoint broadcast should be decoded");
+    TEST_ASSERT(!heater_setpoint_valid(&test_pool_state.heaters[0]), "Heater 1 setpoint should stay unset with a second heater configured");
+}
+
+/**
+ * Test: the heater configuration registers are stored in pool state.
+ * 0xC8 = 0x03 (Heater 1 Connect Inbuilt), 0xCC = 0x01 (second heater configured).
+ */
+void test_heater_config_registers(void)
+{
+    init_test_context();
+
+    uint8_t c8_msg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xC8, 0x00, 0x03,
+        0xCB,
+        0x03
+    };
+    uint8_t cc_msg[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xCC, 0x00, 0x01,
+        0xCD,
+        0x03
+    };
+
+    TEST_ASSERT(decode_message(c8_msg, sizeof(c8_msg), &test_ctx), "Heater 1 Type register should be decoded");
+    TEST_ASSERT(decode_message(cc_msg, sizeof(cc_msg), &test_ctx), "Heater 2 Configured register should be decoded");
+    TEST_ASSERT(test_pool_state.heater1_type_valid, "Heater 1 type should be valid");
+    TEST_ASSERT(test_pool_state.heater1_type == HEATER1_TYPE_CONNECT_INBUILT, "Heater 1 type should be Connect Inbuilt");
+    TEST_ASSERT(test_pool_state.heater2_configured_valid, "Heater 2 configured should be valid");
+    TEST_ASSERT(test_pool_state.heater2_configured, "Heater 2 should be configured");
+}
+
+/**
+ * Test: heater_configured() reports each slot from the heater configuration
+ * registers, and stays unknown until its register has arrived.
+ */
+void test_heater_configured_helper(void)
+{
+    init_test_context();
+    bool known = true;
+
+    TEST_ASSERT(!heater_configured(&test_pool_state, 0, &known) && !known,
+                "Heater 1 should be unknown before 0xC8 arrives");
+    TEST_ASSERT(!heater_configured(&test_pool_state, 1, &known) && !known,
+                "Heater 2 should be unknown before 0xCC arrives");
+
+    // 0xC8 = 0x00 (no Heater 1), 0xCC = 0x00 (no second heater)
+    uint8_t c8_none[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xC8, 0x00, 0x00,
+        0xC8,
+        0x03
+    };
+    uint8_t cc_none[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xCC, 0x00, 0x00,
+        0xCC,
+        0x03
+    };
+    decode_message(c8_none, sizeof(c8_none), &test_ctx);
+    decode_message(cc_none, sizeof(cc_none), &test_ctx);
+    TEST_ASSERT(!heater_configured(&test_pool_state, 0, &known) && known,
+                "Heater 1 should be known and not configured with 0xC8 = 0x00");
+    TEST_ASSERT(!heater_configured(&test_pool_state, 1, &known) && known,
+                "Heater 2 should be known and not configured with 0xCC = 0x00");
+
+    // 0xC8 = 0x01 (Genus), 0xCC = 0x01 (second heater configured)
+    uint8_t c8_genus[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xC8, 0x00, 0x01,
+        0xC9,
+        0x03
+    };
+    uint8_t cc_yes[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xCC, 0x00, 0x01,
+        0xCD,
+        0x03
+    };
+    decode_message(c8_genus, sizeof(c8_genus), &test_ctx);
+    decode_message(cc_yes, sizeof(cc_yes), &test_ctx);
+    TEST_ASSERT(heater_configured(&test_pool_state, 0, &known) && known,
+                "Heater 1 should be configured with 0xC8 = 0x01 (Genus)");
+    TEST_ASSERT(heater_configured(&test_pool_state, 1, &known) && known,
+                "Heater 2 should be configured with 0xCC = 0x01");
+}
+
+/**
+ * Test: a heater configuration register triggers mqtt_publish_heater_config
+ * when it first arrives and when its value changes, not on every repeat.
+ */
+void test_heater_config_change_publishes(void)
+{
+    init_test_context();
+    test_ctx.enable_mqtt = true;
+    heater_config_publishes = 0;
+    last_heater_config_index = -1;
+
+    uint8_t c8_inbuilt[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xC8, 0x00, 0x03,
+        0xCB,
+        0x03
+    };
+    uint8_t c8_none[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xC8, 0x00, 0x00,
+        0xC8,
+        0x03
+    };
+    uint8_t cc_none[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00,
+        0x38, 0x0F, 0x17,
+        0xCC, 0x00, 0x00,
+        0xCC,
+        0x03
+    };
+
+    decode_message(c8_inbuilt, sizeof(c8_inbuilt), &test_ctx);
+    TEST_ASSERT(heater_config_publishes == 1 && last_heater_config_index == 0,
+                "First 0xC8 should publish Heater 1's configuration");
+
+    decode_message(c8_inbuilt, sizeof(c8_inbuilt), &test_ctx);
+    TEST_ASSERT(heater_config_publishes == 1, "Repeated 0xC8 with the same value should not publish");
+
+    decode_message(c8_none, sizeof(c8_none), &test_ctx);
+    TEST_ASSERT(heater_config_publishes == 2 && last_heater_config_index == 0,
+                "Changed 0xC8 should publish Heater 1's configuration");
+
+    decode_message(cc_none, sizeof(cc_none), &test_ctx);
+    TEST_ASSERT(heater_config_publishes == 3 && last_heater_config_index == 1,
+                "First 0xCC should publish Heater 2's configuration");
+
+    test_ctx.enable_mqtt = false;
 }
 
 /**
@@ -394,6 +635,7 @@ void test_decode_heater_on(void)
 {
     // Reset test state
     init_test_context();
+    set_heater_config(HEATER1_TYPE_CONNECT_INBUILT, false);
 
     uint8_t msg[] = {
         0x02,                   // Byte 0: Start
@@ -488,6 +730,7 @@ void test_device_name_lookup(void)
 void test_decode_heater_off(void)
 {
     init_test_context();
+    set_heater_config(HEATER1_TYPE_CONNECT_INBUILT, false);
 
     uint8_t msg[] = {
         0x02, 0x00, 0x62, 0xFF, 0xFF, 0x80, 0x00,
@@ -503,6 +746,68 @@ void test_decode_heater_off(void)
     TEST_ASSERT(decoded, "Heater OFF message should be decoded");
     TEST_ASSERT(!test_pool_state.heaters[0].on, "Heater should be OFF");
     TEST_ASSERT(test_pool_state.heaters[0].valid, "Heater valid flag should be set");
+}
+
+/**
+ * Test: the Connect 8/10's heater bit is not used before register 0xC8 has
+ * been received — nothing is assumed about Heater 1. Service mode still is.
+ */
+void test_decode_heater_bit_ignored_until_type_known(void)
+{
+    init_test_context();
+
+    // 02 00 62 ... 12 0F 03 00 03 08 0B 03 — heater ON, service mode ON
+    uint8_t msg[] = {
+        0x02, 0x00, 0x62, 0xFF, 0xFF, 0x80, 0x00,
+        0x12, 0x0F,
+        0x03,
+        0x00, 0x03, 0x08,
+        0x0B,
+        0x03
+    };
+
+    bool decoded = decode_message(msg, sizeof(msg), &test_ctx);
+
+    TEST_ASSERT(decoded, "Controller status should be decoded");
+    TEST_ASSERT(!test_pool_state.heaters[0].valid, "Heater 1 should stay unset before 0xC8 arrives");
+    TEST_ASSERT(test_pool_state.service_mode_valid && test_pool_state.service_mode,
+                "Service mode should still be set");
+}
+
+/**
+ * Test: with a Genus (smart-control) Heater 1, the heater's own status is
+ * authoritative and the Connect 8/10's heater bit is ignored. Seen on two
+ * installs: the controller's bit stays 0 while the heater runs.
+ */
+void test_decode_heater_bit_ignored_for_genus(void)
+{
+    init_test_context();
+    set_heater_config(HEATER1_TYPE_GENUS, false);
+
+    // HiNRG Gas Heater (0x0072) status 0x01 — heater on
+    uint8_t heater_msg[] = {
+        0x02, 0x00, 0x72, 0xFF, 0xFF, 0x80, 0x00,
+        0x12, 0x10,
+        0x14,
+        0x00, 0x01, 0x00, 0x00,
+        0x01,
+        0x03
+    };
+    // Connect 8/10 status with the heater bit clear: 02 00 62 ... 12 0F 03 04 00 00 04 03
+    uint8_t controller_msg[] = {
+        0x02, 0x00, 0x62, 0xFF, 0xFF, 0x80, 0x00,
+        0x12, 0x0F,
+        0x03,
+        0x04, 0x00, 0x00,
+        0x04,
+        0x03
+    };
+
+    decode_message(heater_msg, sizeof(heater_msg), &test_ctx);
+    decode_message(controller_msg, sizeof(controller_msg), &test_ctx);
+
+    TEST_ASSERT(test_pool_state.heaters[0].valid && test_pool_state.heaters[0].on,
+                "Heater 1 should stay ON from the Genus heater's own status");
 }
 
 /**
@@ -1776,10 +2081,17 @@ int main(void)
     test_heater_device_setpoint_broadcast();
     test_viron_heater_setpoint_broadcast();
     test_heater_device_setpoint_unplumbed_circuit();
-    test_heater_device_setpoint_two_heaters();
+    test_heater_device_setpoint_config_unknown();
+    test_heater_device_setpoint_heater2_removed();
+    test_heater_device_setpoint_heater2_configured();
+    test_heater_config_registers();
+    test_heater_configured_helper();
+    test_heater_config_change_publishes();
     test_decode_temp_reading();
     test_decode_heater_on();
     test_decode_heater_off();
+    test_decode_heater_bit_ignored_until_type_known();
+    test_decode_heater_bit_ignored_for_genus();
 
     // Channel status tests
     printf("\n--- Channel Status Tests ---\n");

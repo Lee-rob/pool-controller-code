@@ -73,9 +73,22 @@ static char s_channel_discovery_name[MAX_CHANNELS][32];
 // Setpoint and Temperature Publishing
 // ======================================================
 
+// Heater entities are published only for a heater the configuration registers
+// (0xC8, 0xCC) say is configured. The Touchscreen and controller still send
+// setpoints and a heater bit with no heater configured, which would otherwise
+// create a phantom heater.
+static bool heater_publishable(const pool_state_t *current_state, int index)
+{
+    bool known;
+    return heater_configured(current_state, index, &known);
+}
+
 void mqtt_publish_heater_setpoints(const pool_state_t *current_state, int index)
 {
     if (index < 0 || index >= MAX_HEATERS) {
+        return;
+    }
+    if (!heater_publishable(current_state, index)) {
         return;
     }
 
@@ -183,6 +196,9 @@ void mqtt_publish_heater(const pool_state_t *current_state, int index)
     if (index < 0 || index >= MAX_HEATERS) {
         return;
     }
+    if (!heater_publishable(current_state, index)) {
+        return;
+    }
 
     const pool_heater_t *heater = &current_state->heaters[index];
 
@@ -218,6 +234,10 @@ void mqtt_publish_gas_heater(const pool_state_t *current_state, int index)
 {
     if (index < 0 || index >= MAX_HEATERS) {
         ESP_LOGE(TAG, "mqtt_publish_gas_heater: index %d out of range", index);
+        return;
+    }
+
+    if (!heater_publishable(current_state, index)) {
         return;
     }
 
@@ -277,6 +297,42 @@ void mqtt_publish_gas_heater(const pool_state_t *current_state, int index)
     ESP_LOGI(TAG, "Published gas heater %d: %s", index, payload);
 }
 
+void mqtt_publish_heater_config(const pool_state_t *current_state, int index)
+{
+    if (index < 0 || index >= MAX_HEATERS) {
+        return;
+    }
+
+    bool known;
+    bool configured = heater_configured(current_state, index, &known);
+    if (!known) {
+        return;
+    }
+
+    if (!configured) {
+        // Retract its entities and forget what was published, so they come
+        // back in full if the heater is configured again.
+        mqtt_remove_heater_discovery(index);
+        s_discovery_published.heaters[index]          = false;
+        s_discovery_published.gas_heaters[index]      = false;
+        s_discovery_published.heater_setpoints[index] = false;
+        memset(&s_last_published_state.heaters[index], 0, sizeof(s_last_published_state.heaters[index]));
+        return;
+    }
+
+    // Publish whatever was held back while the heater's configuration was unknown
+    const pool_heater_t *heater = &current_state->heaters[index];
+    if (heater->valid) {
+        mqtt_publish_heater(current_state, index);
+    }
+    if (heater_setpoint_valid(heater)) {
+        mqtt_publish_heater_setpoints(current_state, index);
+    }
+    if (heater->gas_heater_valid) {
+        mqtt_publish_gas_heater(current_state, index);
+    }
+}
+
 // ======================================================
 // Mode Publishing
 // ======================================================
@@ -327,7 +383,9 @@ void mqtt_publish_channel(const pool_state_t *current_state, uint8_t channel_id)
     // entities from mqtt_publish_heater*/mqtt_publish_light — publishing them
     // again here would be redundant (and the toggle command isn't the right
     // way to control them anyway). They still get power/energy tracking below.
-    bool include_state_entities = (channel->type != CHANNEL_TYPE_HEATER &&
+    bool is_heater_channel = (channel->type == CHANNEL_TYPE_HEATER ||
+                              channel->type == CHANNEL_TYPE_SECONDARY_HEATER);
+    bool include_state_entities = (!is_heater_channel &&
                                     channel->type != CHANNEL_TYPE_LIGHT_ZONE);
 
     // Use channel name if set, otherwise fall back to type name. Light zone
@@ -342,7 +400,6 @@ void mqtt_publish_channel(const pool_state_t *current_state, uint8_t channel_id)
     // channels to get its lighting[] index.
     const char *type_name = get_channel_type_name(channel->type);
     const char *display_name = type_name;
-    char heater_name_buf[16];  // only used in the CHANNEL_TYPE_HEATER branch below
     if (channel->type == CHANNEL_TYPE_LIGHT_ZONE) {
         int zone_rank = 0;
         for (int i = 0; i < channel_id; i++) {
@@ -358,23 +415,14 @@ void mqtt_publish_channel(const pool_state_t *current_state, uint8_t channel_id)
                 display_name = LIGHT_ZONE_NAME_TABLE[light->name_id];
             }
         }
-    } else if (channel->type == CHANNEL_TYPE_HEATER) {
+    } else if (is_heater_channel) {
         // Heaters have no per-unit custom name (pool_heater_t carries no
         // name field) — mqtt_publish_heater/publish_heater_discovery always
-        // refer to them generically as "Heater N" by index. Match that here:
-        // rank this channel among heater-typed channels (same configuration-
-        // order reasoning as light zones above) to get its heater number.
-        int heater_rank = 0;
-        for (int i = 0; i < channel_id; i++) {
-            if (current_state->channels[i].configured &&
-                current_state->channels[i].type == CHANNEL_TYPE_HEATER) {
-                heater_rank++;
-            }
-        }
-        if (heater_rank >= 1 && heater_rank <= MAX_HEATERS) {
-            snprintf(heater_name_buf, sizeof(heater_name_buf), "Heater %d", heater_rank);
-            display_name = heater_name_buf;
-        }
+        // refer to them generically as "Heater N" by index. Match that here.
+        // The channel type names the heater: a Connect Inbuilt Heater 1 takes
+        // a Heater (0xFD) channel, and a second heater (only ever Connect
+        // Inbuilt) a Secondary Heater (0xFB) channel.
+        display_name = (channel->type == CHANNEL_TYPE_HEATER) ? "Heater 1" : "Heater 2";
     } else if (channel->name[0] != '\0') {
         display_name = channel->name;
     }

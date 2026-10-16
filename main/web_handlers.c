@@ -751,9 +751,13 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(temperature, "scale", state.temp_scale_fahrenheit ? "Fahrenheit" : "Celsius");
     cJSON_AddItemToObject(root, "temperature", temperature);
 
-    // Heaters (include heaters that have on/off state and/or setpoints)
+    // Heaters (configured heaters that have on/off state and/or setpoints)
     cJSON *heaters_arr = cJSON_CreateArray();
     for (int i = 0; i < MAX_HEATERS; i++) {
+        bool config_known;
+        if (!heater_configured(&state, i, &config_known)) {
+            continue;
+        }
         if (!state.heaters[i].valid && !heater_setpoint_valid(&state.heaters[i])) {
             continue;
         }
@@ -807,6 +811,7 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     for (int i = 0; i < MAX_CHANNELS; i++) {
         if (!state.channels[i].configured ||
             state.channels[i].type == CHANNEL_TYPE_HEATER ||
+            state.channels[i].type == CHANNEL_TYPE_SECONDARY_HEATER ||
             state.channels[i].type == CHANNEL_TYPE_LIGHT_ZONE) {
             continue;
         }

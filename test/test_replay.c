@@ -43,6 +43,7 @@ void xSemaphoreGive(SemaphoreHandle_t s) { (void)s; }
 void mqtt_publish_mode(const pool_state_t *s) { (void)s; }
 void mqtt_publish_heater(const pool_state_t *s, int i) { (void)s; (void)i; }
 void mqtt_publish_gas_heater(const pool_state_t *s, int i) { (void)s; (void)i; }
+void mqtt_publish_heater_config(const pool_state_t *s, int i) { (void)s; (void)i; }
 void mqtt_publish_chlorinator(const pool_state_t *s) { (void)s; }
 void mqtt_publish_light(const pool_state_t *s, uint8_t z) { (void)s; (void)z; }
 void mqtt_publish_channel(const pool_state_t *s, uint8_t c) { (void)s; (void)c; }

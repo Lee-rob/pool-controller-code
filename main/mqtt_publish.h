@@ -23,6 +23,12 @@ void mqtt_publish_heater(const pool_state_t *current_state, int index);
 // to pool/<id>/heater/<index>/gas_status/state. Called only when gas_heater_valid is set.
 void mqtt_publish_gas_heater(const pool_state_t *current_state, int index);
 
+// Act on a change to a heater's configuration (registers 0xC8 / 0xCC). A
+// configured heater publishes the state held back until now; an unconfigured
+// one has its entities retracted. The heater publishers above publish nothing
+// for a heater that isn't configured.
+void mqtt_publish_heater_config(const pool_state_t *current_state, int index);
+
 // Publish mode (Pool/Spa) from pool state
 void mqtt_publish_mode(const pool_state_t *current_state);
 
