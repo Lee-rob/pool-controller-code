@@ -248,6 +248,10 @@ typedef struct {
     // Channels (up to MAX_CHANNELS)
     channel_state_t channels[MAX_CHANNELS];
     uint8_t num_channels;
+    // CMD 0x0D is the authoritative live relay/output bitmask.  The active
+    // byte repeated in CMD 0x0B can lag or be unreliable for dedicated solar.
+    uint8_t active_channels_mask;
+    bool active_channels_mask_valid;
 
     // Valves (up to MAX_VALVE_SLOTS)
     valve_state_t valves[MAX_VALVE_SLOTS];

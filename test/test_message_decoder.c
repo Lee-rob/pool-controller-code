@@ -660,6 +660,56 @@ void test_decode_connect10_dedicated_solar_channel(void)
                 "Dedicated Solar captured Off and inactive");
 }
 
+void test_active_channels_bitmask_is_authoritative(void)
+{
+    init_test_context();
+
+    // Establish channel 2 as dedicated solar.  Deliberately give CMD 0x0B a
+    // stale active byte to reproduce the dashboard's always-on symptom.
+    uint8_t status[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x0B, 0x25, 0x00,
+        0x08,
+        0x09, 0x01, 0x00,
+        0xFC, 0x01, 0x01,
+        0x11, 0x01, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+        0x01, 0x01, 0x01,
+        0x25, 0x03
+    };
+    TEST_ASSERT(decode_message(status, sizeof(status), &test_ctx),
+                "Solar channel status should decode");
+    TEST_ASSERT(test_pool_state.channels[1].active,
+                "Before CMD 0x0D, channel status active is the fallback");
+
+    uint8_t none_active[] = {
+        0x02, 0x00, 0x50, 0x00, 0x6F, 0x80, 0x00, 0x0D, 0x0D, 0x5B,
+        0x00, 0x00, 0x03
+    };
+    TEST_ASSERT(decode_message(none_active, sizeof(none_active), &test_ctx),
+                "Inactive-channel bitmask should decode");
+    TEST_ASSERT(!test_pool_state.channels[1].active,
+                "CMD 0x0D clears stale solar activity");
+
+    // A later CMD 0x0B with the stale byte must not overwrite the authoritative
+    // bitmask state.
+    TEST_ASSERT(decode_message(status, sizeof(status), &test_ctx),
+                "Repeated solar channel status should decode");
+    TEST_ASSERT(!test_pool_state.channels[1].active,
+                "CMD 0x0B cannot reassert stale solar activity");
+
+    uint8_t solar_active[] = {
+        0x02, 0x00, 0x50, 0x00, 0x6F, 0x80, 0x00, 0x0D, 0x0D, 0x5B,
+        0x02, 0x02, 0x03
+    };
+    TEST_ASSERT(decode_message(solar_active, sizeof(solar_active), &test_ctx),
+                "Solar-active bitmask should decode");
+    TEST_ASSERT(test_pool_state.channels[1].active,
+                "CMD 0x0D marks solar active only while channel 2 is energised");
+}
+
 // An install with a plain single-speed pump never broadcasts CMD 0x3B, so
 // pump_telemetry_seen stays false. The Filter-inactive zeroing must not fire
 // there: marking speed/power valid would invent readings out of nothing and
@@ -1538,6 +1588,7 @@ int main(void)
     printf("\n--- Channel Status Tests ---\n");
     test_decode_channel_status_all_off();
     test_decode_connect10_dedicated_solar_channel();
+    test_active_channels_bitmask_is_authoritative();
     test_channel_status_resets_pump_speed_when_filter_off();
     test_channel_status_does_not_fabricate_pump_speed_without_telemetry();
     test_decode_channel_status_lights_active();

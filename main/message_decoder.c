@@ -3581,6 +3581,32 @@ static bool handle_channels(
              (bitmask & 0x02) ? '2' : '-',
              (bitmask & 0x01) ? '1' : '-');
 
+    uint8_t channels_to_publish[MAX_CHANNELS] = {0};
+    int num_to_publish = 0;
+    pool_state_t state_snapshot;
+
+    if (state_lock(ctx, "active channels bitmask")) {
+        ctx->pool_state->active_channels_mask = bitmask;
+        ctx->pool_state->active_channels_mask_valid = true;
+
+        for (int i = 0; i < MAX_CHANNELS; i++) {
+            bool active = (bitmask & (1U << i)) != 0;
+            if (ctx->pool_state->channels[i].configured &&
+                ctx->pool_state->channels[i].active != active) {
+                ctx->pool_state->channels[i].active = active;
+                channels_to_publish[num_to_publish++] = i + 1;
+            }
+        }
+
+        state_unlock(ctx, num_to_publish > 0, &state_snapshot);
+    }
+
+    if (ctx->enable_mqtt) {
+        for (int i = 0; i < num_to_publish; i++) {
+            mqtt_publish_channel(&state_snapshot, channels_to_publish[i]);
+        }
+    }
+
     return true;
 }
 
@@ -3630,6 +3656,9 @@ static bool handle_channel_status(
             channel_type_t ch_type = (channel_type_t)payload[payload_idx];
             uint8_t state   = payload[payload_idx + 1];
             uint8_t active  = payload[payload_idx + 2];
+            bool effective_active = ctx->pool_state->active_channels_mask_valid
+                ? (ctx->pool_state->active_channels_mask & (1U << (ch_num - 1))) != 0
+                : active != 0;
             const char *state_name = (state < CHANNEL_STATE_COUNT) ? CHANNEL_STATE_NAMES[state] : "Unknown";
 
             if (ch_type == CHANNEL_TYPE_UNUSED) {
@@ -3638,7 +3667,7 @@ static bool handle_channel_status(
             } else {
                 const char *type_name = get_channel_type_name(ch_type);
                 ESP_LOGI(TAG, "  Ch%d: %s (%d) = %s (%s)", ch_num, type_name, ch_type, state_name,
-                         active ? "Active" : "Inactive");
+                         effective_active ? "Active" : "Inactive");
 
                 // Flag undocumented channel type/state (PROTOCOL.md 0x0B). Only
                 // checked for used channels — an unused channel's state byte
@@ -3651,7 +3680,7 @@ static bool handle_channel_status(
                 ctx->pool_state->channels[ch_num - 1].id = ch_num;
                 ctx->pool_state->channels[ch_num - 1].type = ch_type;
                 ctx->pool_state->channels[ch_num - 1].state = state;
-                ctx->pool_state->channels[ch_num - 1].active = (active != 0);
+                ctx->pool_state->channels[ch_num - 1].active = effective_active;
                 ctx->pool_state->channels[ch_num - 1].configured = true;
 
 
@@ -3668,7 +3697,7 @@ static bool handle_channel_status(
                 // reports anything — would have speed/power marked valid the first time
                 // the Filter channel went inactive, publishing HA pump entities that
                 // can only ever read 0.
-                if (ch_type == CHANNEL_TYPE_FILTER && !active && ctx->pool_state->pump_telemetry_seen) {
+                if (ch_type == CHANNEL_TYPE_FILTER && !effective_active && ctx->pool_state->pump_telemetry_seen) {
                     if (ctx->pool_state->pump_speed != 0 || !ctx->pool_state->pump_speed_valid ||
                         ctx->pool_state->pump_power_watts != 0 || !ctx->pool_state->pump_power_watts_valid) {
                         ctx->pool_state->pump_speed = 0;
