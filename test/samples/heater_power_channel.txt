@@ -1,0 +1,20 @@
+# Heater power channels (0xCA = Heater 1, 0xCD = Heater 2, slot 0x00): the
+# 0-based index of the controller channel powering a Connect Inbuilt heater.
+# Frames from three captures across two installs.
+
+
+# Reference install: Heater 1 on Channel 7 (index 6)
+I (07:34:56.353) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 10 18 CA 00 00 06 D0 03
+I (07:34:56.353) MSG_DECODER: [Touch Screen -> Broadcast] Heater 1 power channel - Ch7
+
+# Reference install: second heater on Channel 8 (index 7)
+I (06:57:46.523) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 11 19 CD 00 00 07 00 D4 03
+I (06:57:46.523) MSG_DECODER: [Touch Screen -> Broadcast] Heater 2 power channel - Ch8
+
+# zagnuts: second heater on Channel 4 (index 3)
+I (00:02:36.317) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 11 19 CD 00 00 03 00 D0 03
+I (00:02:36.317) MSG_DECODER: [Touch Screen -> Broadcast] Heater 2 power channel - Ch4
+
+# Reference install: second heater configured with no channel assigned
+I (00:08:50.430) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 11 19 CD 00 00 FF 00 CC 03
+I (00:08:50.430) MSG_DECODER: [Touch Screen -> Broadcast] Heater 2 power channel - none

@@ -187,7 +187,9 @@ typedef enum {
 
     // Point registers
     REG_ID_HEATER1_TYPE          = 0xC8,  // First heater type (slot 0x00): HEATER1_TYPE_*
+    REG_ID_HEATER1_POWER_CHANNEL = 0xCA,  // First heater's power channel (slot 0x00): {0x00, 0-based channel}
     REG_ID_HEATER2_CONFIGURED    = 0xCC,  // Second heater configured flag (slot 0x00)
+    REG_ID_HEATER2_POWER_CHANNEL = 0xCD,  // Second heater's power channel (slot 0x00): {0x00, 0-based channel or 0xFF, 0x00}
     REG_ID_HEATER1_ONOFF        = 0xE6,  // Heater 1 on/off state
     REG_ID_HEATER1_POOL_SETPOINT = 0xE7,  // Pool temperature setpoint (Heater 1)
     REG_ID_HEATER1_SPA_SETPOINT  = 0xE8,  // Spa temperature setpoint (Heater 1)

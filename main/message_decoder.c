@@ -583,6 +583,7 @@ static bool handle_heater1_state(const uint8_t *data, int len, const uint8_t *pa
 static bool handle_heater2_state(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_heater2_configured(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_heater1_type(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
+static bool handle_heater_power_channel(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_chlor_unknown_countdown(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_chlor_unknown_value(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 
@@ -649,6 +650,10 @@ static const register_handler_t REGISTER_HANDLERS[] = {
 
     // Heater 2 configured flag (slot 0x00, register 0xCC): 0x01 = second heater configured
     {REG_ID_HEATER2_CONFIGURED,    REG_ID_HEATER2_CONFIGURED,    0x00, handle_heater2_configured,     "Heater 2 Configured"},
+
+    // Heater power channels (slot 0x00, registers 0xCA = Heater 1, 0xCD = Heater 2)
+    {REG_ID_HEATER1_POWER_CHANNEL, REG_ID_HEATER1_POWER_CHANNEL, 0x00, handle_heater_power_channel,   "Heater 1 Power Channel"},
+    {REG_ID_HEATER2_POWER_CHANNEL, REG_ID_HEATER2_POWER_CHANNEL, 0x00, handle_heater_power_channel,   "Heater 2 Power Channel"},
 
     // Heater 2 setpoints (slot 0x00, registers 0xEA=Pool, 0xEB=Spa)
     {REG_ID_HEATER2_POOL_SETPOINT, REG_ID_HEATER2_SPA_SETPOINT, 0x00, handle_temp_setpoint,          "Heater 2 Setpoint"},
@@ -1064,6 +1069,44 @@ static bool handle_heater1_type(
         if (changed && ctx->enable_mqtt) {
             mqtt_publish_heater_config(&snapshot, 0);
         }
+    }
+
+    return true;
+}
+
+/**
+ * Handler: Heater power channel
+ * Register 0xCA (Heater 1), payload {0x00, channel}; register 0xCD (Heater 2),
+ * payload {0x00, channel, 0x00}. Slot 0x00. The channel is the 0-based index
+ * of the controller channel powering a Connect Inbuilt heater; 0xFF (seen on
+ * Heater 2 only) means none assigned. The 0x00 bytes have only ever read 0x00.
+ * Log-only.
+ */
+static bool handle_heater_power_channel(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    bool is_heater2 = (payload[0] == REG_ID_HEATER2_POWER_CHANNEL);
+    if (payload_len < (is_heater2 ? 5 : 4)) return false;
+
+    int heater_num  = is_heater2 ? 2 : 1;
+    uint8_t channel = payload[3];
+
+    if (channel == 0xFF) {
+        ESP_LOGI(TAG, "%s Heater %d power channel - none", addr_info, heater_num);
+    } else {
+        ESP_LOGI(TAG, "%s Heater %d power channel - Ch%d", addr_info, heater_num, channel + 1);
+    }
+
+    // PROTOCOL.md Appendix A 0xCA/0xCD: padding bytes only seen as 0x00, the
+    // channel within the 8 channel slots, and 0xFF only on Heater 2.
+    bool undocumented = payload[2] != 0x00 ||
+                        (is_heater2 && payload[4] != 0x00) ||
+                        (channel == 0xFF ? !is_heater2 : channel >= MAX_CHANNELS);
+    if (undocumented) {
+        record_undocumented(data, len);
     }
 
     return true;

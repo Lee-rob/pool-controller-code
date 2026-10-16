@@ -37,7 +37,7 @@ I (07:26:14.303) MSG_DECODER:   Ch6: Blower (9) = Off (Inactive)
 I (07:26:14.303) MSG_DECODER:   Ch7: Heater (253) = Off (Inactive)
 I (07:26:14.303) MSG_DECODER:   Ch8: Unused
 I (07:26:19.403) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 10 18 CA 00 00 06 D0 03
-W (07:26:19.403) MSG_DECODER: [Touch Screen -> Broadcast] Unhandled register - Reg=0xCA, Slot=0x00, Payload[4]: CA 00 00 06
+I (07:26:19.403) MSG_DECODER: [Touch Screen -> Broadcast] Heater 1 power channel - Ch7
 I (07:26:26.273) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 C8 00 03 CB 03
 I (07:26:26.273) MSG_DECODER: [Touch Screen -> Broadcast] Heater 1 type - Connect Inbuilt (3)
 I (07:26:31.543) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 C9 00 00 C9 03

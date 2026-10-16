@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- Decoded the Heater 1 and Heater 2 Power Channel registers (`0xCA` and `0xCD`, slot `0x00`): the controller channel each Connect Inbuilt heater is wired to. The Touchscreen's broadcasts are now logged (e.g. `Heater 1 power channel - Ch7`, or `none` for a second heater with no channel assigned) instead of as unhandled registers, and PROTOCOL.md documents both. A decoder replay test covers channels 4, 7 and 8 and the no-channel case
 - Decoded the Viron Gas Heater's (`0x0071`) own broadcasts. Its CMD `0x12` status now goes through the gas-heater decoder, so Heater 1 shows its on/off state and the gas-heater details (burner, water flow, lockout, service) in Home Assistant, and its CMD `0x17` spa/pool setpoints update Heater 1 on single-heater installs. Previously both appeared on the Unknown Messages page. PROTOCOL.md documents the Viron's CMD `0x12`, `0x16` and `0x17` frames
 - Decoded the Touchscreen's Valve Sync (CMD `0x25`), the valve counterpart of the CMD `0x0D` active channels bitmask. It is now logged as the active valves (e.g. `Active valves - 0x01 [-1]`) instead of reported as unhandled
 - Added decoder replay tests for the valve zones, from captures of valves being configured and switched: the CMD `0x27` two-slot broadcast (including unused slots and the Auto state) and CMD `0x25` with no, one and both valves active.
