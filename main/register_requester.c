@@ -100,7 +100,9 @@ static void register_requester_task(void *arg)
         bool heater_config_known[MAX_HEATERS] = {0};
 
         if (s_mutex && xSemaphoreTake(s_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
-            gateway_present = s_state->gateway_ip_valid;
+            for (int i = 0; i < MAX_GATEWAY_IFACES; i++) {
+                gateway_present |= s_state->gateway_ifaces[i].valid;
+            }
             for (int i = 0; i < MAX_TIMERS; i++) {
                 timers_valid[i] = s_state->timers[i].valid;
             }

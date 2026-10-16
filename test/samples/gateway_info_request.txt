@@ -1,0 +1,31 @@
+# Internet Gateway Info Request (CMD 0x36), Touchscreen (0x0050) -> Gateway
+# (0x00F0), each followed by the Gateway's CMD 0x37 reply for the same item.
+# From the reference install while the Gateway was restarted from the
+# Touchscreen.
+
+
+# Serial number (item 0x04)
+I (22:45:20.324) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0D 05 04 04 03
+I (22:45:20.324) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gateway info request - Serial number
+I (22:45:20.824) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 11 B8 04 A3 15 21 00 DD 03
+I (22:45:20.824) MSG_DECODER: [Internet Gateway -> Broadcast] Serial number - 2168227 (0x002115A3)
+
+# Network config for the Wired (0x00) and WiFi (0x01) interfaces
+I (22:45:21.284) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0E 06 01 00 01 03
+I (22:45:21.284) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gateway info request - Network config (Wired)
+I (22:45:21.405) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0E 06 01 01 02 03
+I (22:45:21.405) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gateway info request - Network config (WiFi)
+I (22:45:21.934) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 15 BC 01 00 00 03 00 00 00 00 00 04 03
+I (22:45:21.934) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway IP (Wired) - 0.0.0.0, signal level: 0
+I (22:45:22.824) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 15 BC 01 01 01 07 C0 A8 00 17 33 BC 03
+I (22:45:22.824) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway IP (WiFi) - 192.168.0.23, signal level: 51
+
+# Comms status (item 0x02)
+I (22:45:24.834) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0D 05 02 02 03
+I (22:45:24.834) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gateway info request - Comms status
+I (22:45:25.644) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 0F B6 02 00 00 02 03
+I (22:45:25.644) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway comms status - 0 (Idle)
+
+# Item 0x03: never answered by its own 0x37
+I (22:49:13.414) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0D 05 03 03 03
+I (22:49:13.414) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gateway info request - Unknown item (0x03)

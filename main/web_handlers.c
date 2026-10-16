@@ -946,16 +946,23 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     } else {
         cJSON_AddNullToObject(gateway, "firmware_version");
     }
-    if (state.gateway_ip_valid) {
-        char ip_str[16];
-        snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d",
-                 state.gateway_ip[0], state.gateway_ip[1],
-                 state.gateway_ip[2], state.gateway_ip[3]);
-        cJSON_AddStringToObject(gateway, "ip",           ip_str);
-        cJSON_AddNumberToObject(gateway, "signal_level", state.gateway_signal_level);
-    } else {
-        cJSON_AddNullToObject(gateway, "ip");
-        cJSON_AddNullToObject(gateway, "signal_level");
+    static const char *const GATEWAY_IFACE_KEYS[MAX_GATEWAY_IFACES] = {
+        [GATEWAY_IFACE_WIRED] = "wired",
+        [GATEWAY_IFACE_WIFI]  = "wifi",
+    };
+    for (int i = 0; i < MAX_GATEWAY_IFACES; i++) {
+        const gateway_iface_t *gw = &state.gateway_ifaces[i];
+        if (gw->valid) {
+            char ip_str[16];
+            snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d",
+                     gw->ip[0], gw->ip[1], gw->ip[2], gw->ip[3]);
+            cJSON *iface = cJSON_CreateObject();
+            cJSON_AddStringToObject(iface, "ip",           ip_str);
+            cJSON_AddNumberToObject(iface, "signal_level", gw->signal_level);
+            cJSON_AddItemToObject(gateway, GATEWAY_IFACE_KEYS[i], iface);
+        } else {
+            cJSON_AddNullToObject(gateway, GATEWAY_IFACE_KEYS[i]);
+        }
     }
     if (state.gateway_comms_status_valid) {
         cJSON_AddNumberToObject(gateway, "comms_status", state.gateway_comms_status);

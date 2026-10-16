@@ -275,7 +275,8 @@ static const cmd_name_entry_t CMD_NAME_TABLE[] = {
     {0x2C, "Solar Status"},
     {0x2D, "Solar Setpoint"},
     {0x31, "Temperature Reading (alt)"},
-    {0x37, "Gateway Info Req/Resp"},
+    {0x36, "Gateway Info Request"},
+    {0x37, "Gateway Info"},
     {0x38, "Register Response"},
     {0x39, "Register Request"},
     {0x3A, "Light Zone Control Cmd"},
@@ -2061,8 +2062,62 @@ static bool handle_serial_number(
 }
 
 /**
+ * Handler: Internet Gateway info request (CMD 0x36) — source-agnostic.
+ * Sent by the Touchscreen (0x0050) to the Gateway (0x00F0). payload[0] is the
+ * item, answered by the CMD 0x37 variant with the same byte 10: 0x01 = network
+ * config (payload[1] = interface, 0x00 Wired / 0x01 WiFi), 0x02 = comms status,
+ * 0x04 = serial number. 0x03 has never been answered by its own 0x37 and its
+ * meaning is unknown. Log-only.
+ */
+static bool handle_gateway_info_request(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 1) return false;
+
+    uint8_t item = payload[0];
+    bool undocumented = false;
+
+    switch (item) {
+        case 0x01:
+            if (payload_len < 2) return false;
+            ESP_LOGI(TAG, "%s Internet Gateway info request - Network config (%s)", addr_info,
+                     payload[1] == 0x00 ? "Wired" : payload[1] == 0x01 ? "WiFi" : "Unknown interface");
+            undocumented = payload_len != 2 || payload[1] > 0x01;
+            break;
+        case 0x02:
+            ESP_LOGI(TAG, "%s Internet Gateway info request - Comms status", addr_info);
+            undocumented = payload_len != 1;
+            break;
+        case 0x03:
+            ESP_LOGI(TAG, "%s Internet Gateway info request - Unknown item (0x03)", addr_info);
+            undocumented = payload_len != 1;
+            break;
+        case 0x04:
+            ESP_LOGI(TAG, "%s Internet Gateway info request - Serial number", addr_info);
+            undocumented = payload_len != 1;
+            break;
+        default:
+            ESP_LOGI(TAG, "%s Internet Gateway info request - Unknown item (0x%02X)", addr_info, item);
+            undocumented = true;
+            break;
+    }
+
+    // PROTOCOL.md 0x36: items 0x01-0x04 only, interface 0x00/0x01 only.
+    if (undocumented) {
+        record_undocumented(data, len);
+    }
+
+    return true;
+}
+
+/**
  * Handler: Internet Gateway IP address message
  * Pattern: "02 00 F0 FF FF 80 00 37 15 BC"
+ * payload[1] is the interface (GATEWAY_IFACE_WIRED / GATEWAY_IFACE_WIFI), and
+ * each interface's config is stored separately.
  */
 static bool handle_gateway_ip(
     const uint8_t *data, int len,
@@ -2072,7 +2127,8 @@ static bool handle_gateway_ip(
 {
     if (payload_len < 9) return false;
 
-    // IP address is in payload[4-7], signal level at payload[8]
+    // Interface in payload[1], IP address in payload[4-7], signal level at payload[8]
+    uint8_t iface = payload[1];
     uint8_t ip[4];
     ip[0] = payload[4];
     ip[1] = payload[5];
@@ -2080,14 +2136,23 @@ static bool handle_gateway_ip(
     ip[3] = payload[7];
     uint8_t signal_level = payload[8];
 
-    ESP_LOGI(TAG, "%s Internet Gateway IP - %d.%d.%d.%d, signal level: %d",
-             addr_info, ip[0], ip[1], ip[2], ip[3], signal_level);
+    const char *iface_name = iface == GATEWAY_IFACE_WIRED ? "Wired" :
+                             iface == GATEWAY_IFACE_WIFI  ? "WiFi"  : "Unknown interface";
+    ESP_LOGI(TAG, "%s Internet Gateway IP (%s) - %d.%d.%d.%d, signal level: %d",
+             addr_info, iface_name, ip[0], ip[1], ip[2], ip[3], signal_level);
+
+    // PROTOCOL.md 0x37 Network Config: only interfaces 0x00 and 0x01 are known
+    if (iface >= MAX_GATEWAY_IFACES) {
+        record_undocumented(data, len);
+        return true;
+    }
 
     // Update state only (no MQTT publishing)
     if (state_lock(ctx, "gateway IP")) {
-        memcpy(ctx->pool_state->gateway_ip, ip, 4);
-        ctx->pool_state->gateway_signal_level = signal_level;
-        ctx->pool_state->gateway_ip_valid = true;
+        gateway_iface_t *gw = &ctx->pool_state->gateway_ifaces[iface];
+        memcpy(gw->ip, ip, 4);
+        gw->signal_level = signal_level;
+        gw->valid = true;
         state_unlock(ctx, true, NULL);
     }
 
@@ -4383,6 +4448,12 @@ static bool dispatch_message(
     // (0x0062) observed sending it so far
     if (cmd == 0x29) {
         return handle_valve_button(data, len, payload, payload_len, addr_info, ctx);
+    }
+
+    // Internet Gateway info request (CMD 0x36) — source-agnostic; only the
+    // Touchscreen (0x0050) observed sending it, to the Gateway (0x00F0)
+    if (cmd == 0x36) {
+        return handle_gateway_info_request(data, len, payload, payload_len, addr_info, ctx);
     }
 
     // Valve state broadcast (CMD 0x27) — source-agnostic; only the

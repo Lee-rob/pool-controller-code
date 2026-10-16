@@ -222,6 +222,17 @@ typedef struct {
     bool enabled_valid;   // True once enable flag has been received
 } favourite_t;
 
+// Internet Gateway network interfaces (CMD 0x37 network config, byte 11)
+#define GATEWAY_IFACE_WIRED  0x00
+#define GATEWAY_IFACE_WIFI   0x01
+#define MAX_GATEWAY_IFACES   2
+
+typedef struct {
+    uint8_t ip[4];          // IPv4 address bytes (0.0.0.0 = no address)
+    uint8_t signal_level;   // WiFi signal level (0-100); reads 0 on the wired interface
+    bool valid;             // True once a network config has been received for this interface
+} gateway_iface_t;
+
 typedef struct {
     // Temperature setpoints now live per-heater on heaters[] (pool_heater_t);
     // per-source temperature readings live on seen_device_t entries.
@@ -277,10 +288,8 @@ typedef struct {
     uint32_t serial_number;
     bool serial_number_valid;
 
-    // Internet Gateway IP address
-    uint8_t gateway_ip[4];  // IPv4 address bytes
-    uint8_t gateway_signal_level;  // Signal level
-    bool gateway_ip_valid;
+    // Internet Gateway network config, one per interface (GATEWAY_IFACE_*)
+    gateway_iface_t gateway_ifaces[MAX_GATEWAY_IFACES];
 
     // Internet Gateway communications status
     uint16_t gateway_comms_status;
