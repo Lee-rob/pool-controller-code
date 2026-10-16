@@ -1607,6 +1607,9 @@ static int find_or_insert_seen_device_locked(pool_state_t *st, uint8_t hi, uint8
     st->seen_devices[idx].fw_version_minor = 0;
     st->seen_devices[idx].decoded_count = 0;
     st->seen_devices[idx].unknown_count = 0;
+    st->seen_devices[idx].last_seen_ms = 0;
+    st->seen_devices[idx].longest_gap_ms = 0;
+    st->seen_devices[idx].last_command = 0;
     st->seen_devices[idx].temp1 = 0;
     st->seen_devices[idx].temp2 = 0;
     st->seen_devices[idx].temp1_valid = false;
@@ -3935,6 +3938,14 @@ bool decode_message(const uint8_t *data, int len, message_decoder_context_t *ctx
         if (!(src_hi == 0xFF && src_lo == 0xFF)) {
             int idx = find_or_insert_seen_device_locked(ctx->pool_state, src_hi, src_lo);
             if (idx >= 0) {
+                uint32_t now_ms = (uint32_t)((uint64_t)xTaskGetTickCount() * portTICK_PERIOD_MS);
+                seen_device_t *device = &ctx->pool_state->seen_devices[idx];
+                if (device->last_seen_ms != 0) {
+                    uint32_t gap_ms = now_ms - device->last_seen_ms;
+                    if (gap_ms > device->longest_gap_ms) device->longest_gap_ms = gap_ms;
+                }
+                device->last_seen_ms = now_ms;
+                device->last_command = data[7];
                 if (decoded) ctx->pool_state->seen_devices[idx].decoded_count++;
                 else         ctx->pool_state->seen_devices[idx].unknown_count++;
             }

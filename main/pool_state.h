@@ -192,6 +192,9 @@ typedef struct {
     uint8_t fw_version_minor;
     uint32_t decoded_count;     // Frames from this source that decode_message handled
     uint32_t unknown_count;     // Frames from this source that fell through to handle_unknown
+    uint32_t last_seen_ms;      // Uptime milliseconds when its latest frame arrived
+    uint32_t longest_gap_ms;    // Largest observed gap between frames from this source
+    uint8_t last_command;       // Command byte from its latest frame
 
     // Temperature sensors (populated from CMD 0x16; see message_decoder.c)
     uint8_t temp1;              // Sensor 1 reading in °C

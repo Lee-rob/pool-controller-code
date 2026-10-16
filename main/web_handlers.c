@@ -8,6 +8,7 @@
 #include "unknown_buffer.h"
 #include "device_serial.h"
 #include "firmware_update.h"
+#include "bus.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_timer.h"
@@ -707,6 +708,32 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(resyncs, "unexpected",      state.resyncs_unexpected);
     cJSON_AddItemToObject(root, "resyncs", resyncs);
 
+    // Gateway UART diagnostics make bus faults actionable: they distinguish
+    // received traffic, successful sends, and sends deliberately suppressed
+    // because the shared bus was active.
+    bus_diagnostics_t bus_diag;
+    bus_get_diagnostics(&bus_diag);
+    uint32_t now_ms = (uint32_t)((uint64_t)xTaskGetTickCount() * portTICK_PERIOD_MS);
+    cJSON *bus = cJSON_CreateObject();
+    cJSON_AddNumberToObject(bus, "rx_bytes", bus_diag.rx_bytes);
+    if (bus_diag.last_rx_ms) {
+        cJSON_AddNumberToObject(bus, "last_rx_age_ms", now_ms - bus_diag.last_rx_ms);
+    } else {
+        cJSON_AddNullToObject(bus, "last_rx_age_ms");
+    }
+    cJSON_AddNumberToObject(bus, "tx_attempts", bus_diag.tx_attempts);
+    cJSON_AddNumberToObject(bus, "tx_successes", bus_diag.tx_successes);
+    cJSON_AddNumberToObject(bus, "tx_skipped_transmitter_busy",
+                            bus_diag.tx_skipped_transmitter_busy);
+    cJSON_AddNumberToObject(bus, "tx_skipped_bus_active", bus_diag.tx_skipped_bus_active);
+    cJSON_AddNumberToObject(bus, "tx_failures", bus_diag.tx_failures);
+    if (bus_diag.last_tx_ms) {
+        cJSON_AddNumberToObject(bus, "last_tx_age_ms", now_ms - bus_diag.last_tx_ms);
+    } else {
+        cJSON_AddNullToObject(bus, "last_tx_age_ms");
+    }
+    cJSON_AddItemToObject(root, "bus_diagnostics", bus);
+
     // Devices observed on the bus
     cJSON *devices = cJSON_CreateArray();
     for (int i = 0; i < state.num_seen_devices; i++) {
@@ -745,6 +772,15 @@ static esp_err_t status_get_handler(httpd_req_t *req)
         cJSON_AddNumberToObject(dev_counts, "decoded", d->decoded_count);
         cJSON_AddNumberToObject(dev_counts, "unknown", d->unknown_count);
         cJSON_AddItemToObject(dev, "message_counts", dev_counts);
+        if (d->last_seen_ms) {
+            cJSON_AddNumberToObject(dev, "last_seen_age_ms", now_ms - d->last_seen_ms);
+        } else {
+            cJSON_AddNullToObject(dev, "last_seen_age_ms");
+        }
+        cJSON_AddNumberToObject(dev, "longest_message_gap_ms", d->longest_gap_ms);
+        char command_str[8];
+        snprintf(command_str, sizeof(command_str), "0x%02X", d->last_command);
+        cJSON_AddStringToObject(dev, "last_command", command_str);
         cJSON_AddItemToArray(devices, dev);
     }
     cJSON_AddItemToObject(root, "devices", devices);
