@@ -249,14 +249,13 @@ typedef struct {
     channel_state_t channels[MAX_CHANNELS];
     uint8_t num_channels;
 
-    // CMD 0x0D is the controller's authoritative live-output bitmap for every
-    // configured channel, including dedicated Solar (type 0xFC).
+    // CMD 0x0D is the controller's authoritative live-output bitmap for the
+    // ordinary channels. Dedicated Solar (type 0xFC) may be omitted.
     uint8_t active_channels_bitmask;
     bool active_channels_valid;
 
     // CMD 0x2C is authoritative for the dedicated Solar controller's selected
-    // mode. Its runtime byte is retained only as a startup fallback until the
-    // first CMD 0x0D active-channel bitmap arrives.
+    // mode and its runtime byte is authoritative for Solar output activity.
     uint8_t solar_mode;       // 0=Off, 1=Auto, 2=On
     bool solar_mode_valid;
     bool solar_active;
