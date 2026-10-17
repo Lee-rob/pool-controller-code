@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+### Changed
+### Fixed
+### Removed
+### Deprecated
+### Security
+
+## [1.18.0] - 2026-10-17
+### Added
 - Decoded the Valve State registers (`0xE0`–`0xE7`, slot `0x02`), one per valve zone, holding the same Off/Auto/On value as the valve's slot in CMD `0x27`. The Touchscreen's replies are now logged (e.g. `Valve zone 1 state - Auto`) instead of as unhandled registers, and the Internet Gateway's polls for them no longer fill the Unknown Messages page. A value for Valves 3–8, or outside Off/Auto/On, is flagged as undocumented. A decoder replay test covers each valve being switched
 - Decoded the Internet Gateway's interface status flags (CMD `0x37` network config, byte 13): Enabled, Initialised and Linked, the first three rows of the Touchscreen's Network status page. Linked shows whether the interface is connected to a network, independent of the IP address it reports. The flags are logged with each network config (e.g. `Internet Gateway IP (WiFi) - 192.168.0.23, signal level: 36, enabled: yes, initialized: yes, linked: yes`) and reported in the status API. A decoder replay test covers the WiFi losing its network and the unlinked wired interface
 - Decoded the Touchscreen's Internet Gateway Info Request (CMD `0x36`), which asks the Gateway for one item: its serial number, its comms status, or the network config of its Wired or WiFi interface. The same CMD carries the Touchscreen's Reconnect button (item `0x03`). A request for item `0x05` returns the Gateway's firmware version, now logged as e.g. `Internet Gateway firmware version - 5.1`. Both are now logged (e.g. `Internet Gateway info request - Network config (WiFi)`, `Internet Gateway reconnect command`) instead of reported as unhandled. The Gateway answers with the existing CMD `0x37` messages, whose first byte is now documented as the item ID. PROTOCOL.md documents the request/reply pairing and which Touchscreen Gateway page sends which request, and a decoder replay test covers every item
@@ -43,21 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A heater that isn't configured no longer appears in Home Assistant or on the web page. The Touchscreen and the Connect 8/10 still send setpoints and a heater bit with no heater configured, which created a phantom "Heater 1". Heater entities and the web page's heater list now include a heater only once the heater configuration registers (`0xC8`, `0xCC`) say it is configured. When they say a heater isn't configured, its Home Assistant entities are removed, including any left on the broker by earlier firmware or an earlier configuration (#125)
 - A Genus (smart-control) heater's own setpoint broadcast (CMD `0x17`) is applied to Heater 1 again once the second heater is removed. Whether a second heater is configured now comes from register `0xCC`; before, anything ever seen about Heater 2 stopped these setpoints being applied until the next restart. They are applied only once `0xCC` has been received (#125)
 - A second heater's power channel (Secondary Heater, `0xFB`) is now handled like the first heater's (Heater, `0xFD`). It was published to Home Assistant as an ordinary channel named "Secondary Heater", with state, toggle and Active entities, and listed with the ordinary channels on the web page. It now gets only its power settings, named "Heater 2". Heater channel names now come from the channel type (Heater = Heater 1, Secondary Heater = Heater 2) instead of counting heater channels. State entities already published for that channel stay on the broker until removed in Home Assistant
-- Dedicated Connect 10 Solar channels (`0xFC`) now report their selected
-  Off/Auto/On mode and live output activity from CMD `0x2C`. Their CMD `0x0B`
-  tuple remains `FC 00 00` even while Solar is running (and CMD `0x0D` omits
-  it), so CMD `0x2C` is treated as the authority: neither CMD `0x0B` nor the
-  Channel State register (`0x8C`+N) overwrites it, and a CMD `0x2C` seen before
-  the channel is known is applied once the Channel Type register or CMD `0x0B`
-  reveals it. The channel type is labelled "Solar Controller" so it can be told
-  apart from a relay-switched Solar channel (`0x08`). An undocumented raw state
-  on the Solar channel's CMD `0x0B` tuple, or an undocumented CMD `0x2C` mode,
-  is still flagged on the Unknown Messages page; the latter no longer discards
-  the output state in the same frame.
+- Dedicated Connect 10 Solar channels (`0xFC`) now report their selected Off/Auto/On mode and live output activity from CMD `0x2C`. Their CMD `0x0B` tuple remains `FC 00 00` even while Solar is running (and CMD `0x0D` omits it), so CMD `0x2C` is treated as the authority: neither CMD `0x0B` nor the Channel State register (`0x8C`+N) overwrites it, and a CMD `0x2C` seen before the channel is known is applied once the Channel Type register or CMD `0x0B` reveals it. The channel type is labelled "Solar Controller" so it can be told apart from a relay-switched Solar channel (`0x08`). An undocumented raw state on the Solar channel's CMD `0x0B` tuple, or an undocumented CMD `0x2C` mode, is still flagged on the Unknown Messages page; the latter no longer discards the output state in the same frame.
 - Stopped flagging normal CMD `0x12` device-status values as undocumented. The Touchscreen's status frame sends `0x09` on some installs (as well as `0x01`/`0x05`), and the Connect 8/10's frame sends `0x04` in byte 10 and `0x00` in byte 12, so these were filling the Unknown Messages page. The Touchscreen frame is now logged as "Touchscreen status" rather than "Touchscreen other status", and PROTOCOL.md no longer claims these bytes are constant; what the Touchscreen's value means is still unknown
-### Removed
-### Deprecated
-### Security
 
 ## [1.17.0] - 2026-10-11
 ### Added
