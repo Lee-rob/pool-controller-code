@@ -1946,29 +1946,29 @@ Serial number of the internet gateway module.
 
 #### Network Config (LEN `0x15`) ⚠️
 
-IP address and signal strength of the gateway.
+State, IP address and signal strength of one of the Gateway's network interfaces. This is what the Touchscreen's Network status page shows, one column per interface: Enabled, Initialised, Linked, IP Address and Strength.
 
 **Pattern:** `02 00 F0 FF FF 80 00 37 15 BC`
 
-**Example — On startup (no connection):**
+**Example — WiFi enabled and initialised, not linked (on startup, or while reconnecting):**
 
 ```
 02 00 F0 FF FF 80 00 37 15 BC 01 01 01 03 00 00 00 00 00 06 03
 ```
 
-**Example — With IP address (wifi connected):**
+**Example — WiFi linked, with an IP address:**
 
 ```
 02 00 F0 FF FF 80 00 37 15 BC 01 01 01 07 C0 A8 00 17 2B B4 03
                               ^^ Item ID (0x01)
                                  ^^ Interface index
                                     ^^ Unknown
-                                       ^^ Unknown
+                                       ^^ Status flags (0x07 = enabled, initialised, linked)
                                           ^^ ^^ ^^ ^^ IP address (192.168.0.23)
                                                       ^^ Signal level (43)
 ```
 
-**Example — Wired interface (not connected), in reply to a `0x36` request for it:**
+**Example — Wired interface enabled and initialised, not linked, in reply to a `0x36` request for it:**
 
 ```
 02 00 F0 FF FF 80 00 37 15 BC 01 00 00 03 00 00 00 00 00 04 03
@@ -1979,9 +1979,14 @@ IP address and signal strength of the gateway.
 - Byte 10: Item ID, always `0x01`
 - Byte 11: Interface index — `0x00` = Wired, `0x01` = WiFi. On the captured (WiFi) install the Gateway's own broadcasts are always the WiFi interface; the wired interface is only seen in reply to a [0x36](#0x36--internet-gateway-info-request-) request for it
 - Byte 12: Unknown — has so far always equalled byte 11
-- Byte 13: Unknown — `0x07` with an IP address, `0x03` usually with `0.0.0.0` (once seen with an IP during a WiFi change)
+- Byte 13: Status flags, the Network status page's first three rows:
+  - Bit 0 (`0x01`): Enabled
+  - Bit 1 (`0x02`): Initialised
+  - Bit 2 (`0x04`): Linked — the interface is connected to a network. Independent of the IP address: when the WiFi lost its network, the flag cleared while the old IP was still reported for about 10 s, before it changed to `0.0.0.0`. The comms status went to No suitable interfaces ready (`256`) at the same moment
+  - Bits 3–7: only ever `0`
+  - Observed: `0x07` (WiFi linked) and `0x03` (WiFi or Wired not linked), matching the screen's Yes/No rows
 - Bytes 14-17: IP address (4 bytes, standard order)
-- Byte 18: WiFi signal level (0-100)
+- Byte 18: WiFi signal level (0-100). Reads `0x00` on the wired interface, which the Touchscreen shows as N/A
 
 ---
 

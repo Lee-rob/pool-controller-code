@@ -1,0 +1,23 @@
+# Internet Gateway network config (CMD 0x37 item 0x01): byte 13 status flags
+# (0x01 enabled, 0x02 initialised, 0x04 linked). From the reference install
+# while the Gateway's WiFi was switched to the wrong network: the linked flag
+# clears while the old IP is still reported, then the IP goes to 0.0.0.0.
+# The wired interface (cable connected, never linked) stays enabled and
+# initialised.
+
+
+# WiFi linked, communicating with the server
+I (01:54:59.295) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 15 BC 01 01 01 07 C0 A8 00 17 24 AD 03
+I (01:54:59.295) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway IP (WiFi) - 192.168.0.23, signal level: 36, enabled: yes, initialized: yes, linked: yes
+
+# WiFi lost its network: not linked, old IP still reported
+I (01:55:14.065) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 15 BC 01 01 01 03 C0 A8 00 17 00 85 03
+I (01:55:14.065) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway IP (WiFi) - 192.168.0.23, signal level: 0, enabled: yes, initialized: yes, linked: no
+
+# WiFi not linked, no IP
+I (01:55:23.955) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 15 BC 01 01 01 03 00 00 00 00 00 06 03
+I (01:55:23.955) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway IP (WiFi) - 0.0.0.0, signal level: 0, enabled: yes, initialized: yes, linked: no
+
+# Wired interface: enabled and initialised, not linked
+I (01:55:20.405) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 15 BC 01 00 00 03 00 00 00 00 00 04 03
+I (01:55:20.405) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway IP (Wired) - 0.0.0.0, signal level: 0, enabled: yes, initialized: yes, linked: no

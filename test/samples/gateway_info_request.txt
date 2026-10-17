@@ -16,9 +16,9 @@ I (22:45:21.284) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gatewa
 I (22:45:21.405) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0E 06 01 01 02 03
 I (22:45:21.405) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gateway info request - Network config (WiFi)
 I (22:45:21.934) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 15 BC 01 00 00 03 00 00 00 00 00 04 03
-I (22:45:21.934) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway IP (Wired) - 0.0.0.0, signal level: 0
+I (22:45:21.934) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway IP (Wired) - 0.0.0.0, signal level: 0, enabled: yes, initialized: yes, linked: no
 I (22:45:22.824) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 15 BC 01 01 01 07 C0 A8 00 17 33 BC 03
-I (22:45:22.824) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway IP (WiFi) - 192.168.0.23, signal level: 51
+I (22:45:22.824) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway IP (WiFi) - 192.168.0.23, signal level: 51, enabled: yes, initialized: yes, linked: yes
 
 # Comms status (item 0x02)
 I (22:45:24.834) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0D 05 02 02 03

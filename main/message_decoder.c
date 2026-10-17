@@ -2130,8 +2130,13 @@ static bool handle_gateway_ip(
 {
     if (payload_len < 9) return false;
 
-    // Interface in payload[1], IP address in payload[4-7], signal level at payload[8]
+    // Interface in payload[1], status flags in payload[3], IP address in
+    // payload[4-7], signal level at payload[8]
     uint8_t iface = payload[1];
+    uint8_t flags = payload[3];
+    bool enabled     = flags & GATEWAY_IFACE_FLAG_ENABLED;
+    bool initialized = flags & GATEWAY_IFACE_FLAG_INITIALIZED;
+    bool linked      = flags & GATEWAY_IFACE_FLAG_LINKED;
     uint8_t ip[4];
     ip[0] = payload[4];
     ip[1] = payload[5];
@@ -2141,8 +2146,14 @@ static bool handle_gateway_ip(
 
     const char *iface_name = iface == GATEWAY_IFACE_WIRED ? "Wired" :
                              iface == GATEWAY_IFACE_WIFI  ? "WiFi"  : "Unknown interface";
-    ESP_LOGI(TAG, "%s Internet Gateway IP (%s) - %d.%d.%d.%d, signal level: %d",
-             addr_info, iface_name, ip[0], ip[1], ip[2], ip[3], signal_level);
+    ESP_LOGI(TAG, "%s Internet Gateway IP (%s) - %d.%d.%d.%d, signal level: %d, enabled: %s, initialized: %s, linked: %s",
+             addr_info, iface_name, ip[0], ip[1], ip[2], ip[3], signal_level,
+             enabled ? "yes" : "no", initialized ? "yes" : "no", linked ? "yes" : "no");
+
+    // PROTOCOL.md 0x37 Network Config: only flag bits 0-2 have been seen
+    if (flags & ~(GATEWAY_IFACE_FLAG_ENABLED | GATEWAY_IFACE_FLAG_INITIALIZED | GATEWAY_IFACE_FLAG_LINKED)) {
+        record_undocumented(data, len);
+    }
 
     // PROTOCOL.md 0x37 Network Config: only interfaces 0x00 and 0x01 are known
     if (iface >= MAX_GATEWAY_IFACES) {
@@ -2155,6 +2166,9 @@ static bool handle_gateway_ip(
         gateway_iface_t *gw = &ctx->pool_state->gateway_ifaces[iface];
         memcpy(gw->ip, ip, 4);
         gw->signal_level = signal_level;
+        gw->enabled = enabled;
+        gw->initialized = initialized;
+        gw->linked = linked;
         gw->valid = true;
         state_unlock(ctx, true, NULL);
     }

@@ -227,9 +227,17 @@ typedef struct {
 #define GATEWAY_IFACE_WIFI   0x01
 #define MAX_GATEWAY_IFACES   2
 
+// Network config status flags (CMD 0x37 network config, byte 13)
+#define GATEWAY_IFACE_FLAG_ENABLED      0x01
+#define GATEWAY_IFACE_FLAG_INITIALIZED  0x02
+#define GATEWAY_IFACE_FLAG_LINKED       0x04  // Connected to a network (independent of the IP)
+
 typedef struct {
     uint8_t ip[4];          // IPv4 address bytes (0.0.0.0 = no address)
     uint8_t signal_level;   // WiFi signal level (0-100); reads 0 on the wired interface
+    bool enabled;
+    bool initialized;
+    bool linked;
     bool valid;             // True once a network config has been received for this interface
 } gateway_iface_t;
 

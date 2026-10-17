@@ -959,6 +959,9 @@ static esp_err_t status_get_handler(httpd_req_t *req)
             cJSON *iface = cJSON_CreateObject();
             cJSON_AddStringToObject(iface, "ip",           ip_str);
             cJSON_AddNumberToObject(iface, "signal_level", gw->signal_level);
+            cJSON_AddBoolToObject(iface,   "enabled",      gw->enabled);
+            cJSON_AddBoolToObject(iface,   "initialized",  gw->initialized);
+            cJSON_AddBoolToObject(iface,   "linked",       gw->linked);
             cJSON_AddItemToObject(gateway, GATEWAY_IFACE_KEYS[i], iface);
         } else {
             cJSON_AddNullToObject(gateway, GATEWAY_IFACE_KEYS[i]);
