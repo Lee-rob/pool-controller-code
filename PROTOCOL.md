@@ -146,7 +146,7 @@ The low nibble is a model, not an instance number: each family is a list of rela
 | `0x0090` | RolaChem          | Chemistry/chlorinator module      |
 | `0x00A0` | Viron Pump        | Viron XT Variable Speed Pump      |
 | `0x00F0` | Internet Gateway  | Internet gateway module           |
-| `0xAC1D` | Pool Controller ESP32 | This bridge firmware's own bus identity |
+| `0xAC1D` | Pool Controller ESP32 | This bridge firmware's own bus identity. Every command the firmware sends uses it, and the Touchscreen acts on them without impersonation |
 | `0xFFFF` | Broadcast         | Broadcast to all devices          |
 
 #### Touchscreen device name table
@@ -229,24 +229,24 @@ Click any CMD in the first column to jump to the full section in [Commands](#com
 | [`0x0B`](#0x0b--channel-status-)                               | Channel Status                      | `0x0050` → Broadcast                                                   |                                                                                             | Yes                     |
 | [`0x0D`](#0x0d--active-channels-bitmask-)                      | Active Channels Bitmask             | `0x0050` → `0x006F` Internal Channels                                  | Unicast                                                                                     | Yes                     |
 | [`0x0F`](#0x0f--set-channel-state-)                | Set Channel State          | `0x0081`, `0x0084`, `0x0062`, `0xAC1D` → `0x0050`                                                  | `{channel, state}` — sets a **pump-driven** channel to a named state directly (Off/Auto/On/Low/Med/High). The Connect 8/10 sends it for its Cleaning button | Yes                     |
-| [`0x10`](#0x10--channel-toggle-command-)                      | Channel Toggle Command              | `0x00F0`, `0x0062` → Broadcast                                         | Same 1-byte channel-index payload from either source; dispatched on CMD byte alone         | Yes (unified handler)   |
+| [`0x10`](#0x10--channel-toggle-command-)                      | Channel Toggle Command              | `0x00F0`, `0x0062`, `0xAC1D` → Broadcast                               | Same 1-byte channel-index payload from either source; dispatched on CMD byte alone         | Yes (unified handler)   |
 | [`0x12`](#0x12--device-status-️)                               | Device Status                       | `0x0050`, `0x0062`, `0x0070`–`0x0072`, `0x0074`, `0x0081`, `0x0084`, `0x0090`, `0x00F0` → Broadcast | Payload layout differs per source; dispatched on CMD byte, routed by source address         | Yes (per-source)        |
 | [`0x14`](#0x14--mode-spapool-)                                 | Mode (Spa/Pool)                     | `0x0050` → Broadcast                                                   |                                                                                             | Yes                     |
-| [`0x15`](#0x15--mode-set-command-spapool-)                     | Mode Set Command (Spa/Pool)         | `0x0050`, `0x0062`, `0x0074` → Broadcast                               | Two forms by LEN: `0x0D` sets the mode, same encoding as the `0x14` status (Spa=`0x00`, Pool=`0x01`); `0x0B` (frame with no data, FRAME_TYPE `00 00`, from the Connect 8/10 Pool/Spa button and the ICI Gas Heater) toggles it; dispatched on CMD byte alone | Yes (both forms)        |
+| [`0x15`](#0x15--mode-set-command-spapool-)                     | Mode Set Command (Spa/Pool)         | `0x0050`, `0x0062`, `0x0074`, `0xAC1D` → Broadcast                     | Two forms by LEN: `0x0D` sets the mode, same encoding as the `0x14` status (Spa=`0x00`, Pool=`0x01`); `0x0B` (frame with no data, FRAME_TYPE `00 00`, from the Connect 8/10 Pool/Spa button and the ICI Gas Heater) toggles it; dispatched on CMD byte alone | Yes (both forms)        |
 | [`0x16`](#0x16--water-temperature-reading-)                    | Water Temperature Reading           | `0x0062` (LEN `0x0E`), `0x0070`/`0x0071`/`0x0072`/`0x0074` (LEN `0x0D`) → Broadcast | Payload length differs by source: LEN `0x0E` = `{temp1, temp2}`, LEN `0x0D` = `{temp1}`; dispatched on CMD byte alone | Yes (unified handler)   |
 | [`0x17`](#0x17--temperature-settings-)                         | Temperature Settings                | `0x0050` (LEN `0x10`), `0x0070`/`0x0071`/`0x0072`/`0x0074` (LEN `0x0E`) → Broadcast | Source-dependent payload layout                                                             | Yes (per-source)        |
 | [`0x18`](#0x18--pump-speed-command-)                           | Pump Speed Command                  | `0x0050`, `0x0084` → `0x00A0` Viron XT Pump                            | Set pump speed (low/med/high)                                                       | Yes                     |
 | [`0x1A`](#0x1a--pre-valve-command-frame-️)                             | Pre-Valve-Command Frame             | `0x0050` → `0x007F` Internal Control                                   | Unicast frame with no data (LEN `0x0B`, FRAME_TYPE `00 00`) sent immediately before a `0x41` valve command; purpose unknown | Yes (log-only)          |
 | [`0x1B`](#0x1b--pump-button-activity-)                         | Pump Button Activity                | `0x00A0` Viron XT Pump → Broadcast                                      | Speed button pressed on pump (Low/Med/High)                                                  | Yes (log-only)          |
-| [`0x19`](#0x19--temperature-setpoint-command-)                 | Temperature Setpoint Command        | `0x00F0` Gateway, `0x0050` Touchscreen → Broadcast                     | Sub-dispatched by slot byte (`0x01`/`0x02` Pool/Spa from Gateway, `0x03` heater pair from Touchscreen); dispatched on CMD byte alone | Yes (unified handler)   |
+| [`0x19`](#0x19--temperature-setpoint-command-)                 | Temperature Setpoint Command        | `0x00F0` Gateway, `0x0050` Touchscreen, `0xAC1D` → Broadcast           | Sub-dispatched by slot byte (`0x01`/`0x02` Pool/Spa from Gateway, `0x03` heater pair from Touchscreen); dispatched on CMD byte alone | Yes (unified handler)   |
 | [`0x1D`](#0x1d--chlorinator-setpoint-)                         | Chlorinator Setpoint                | `0x0090` RolaChem, `0x0084` Viron, `0x0081` VX 11S v3 → Broadcast         | Byte 10: `0x00`=chlorine output level (VX 11S v3 only), `0x01`=pH, `0x02`=ORP; dispatched on CMD byte alone | Yes (unified handler)   |
 | [`0x1F`](#0x1f--chlorinator-reading-)                          | Chlorinator Reading                 | `0x0090` RolaChem, `0x0084` Viron → Broadcast                          | Byte 10: `0x01`=pH, `0x02`=ORP; same payload from both sources; dispatched on CMD byte alone | Yes (unified handler)   |
 | [`0x25`](#0x25--valve-sync-)                                   | Valve Sync                          | `0x0050` → `0x006F` Internal Channels                                  | Unicast; valve counterpart of `0x0D`; dispatched on CMD byte alone                          | Yes (log-only)          |
 | [`0x26`](#0x26--configuration-️)                               | Configuration                       | `0x0050` → Broadcast                                                   |                                                                                             | Yes                     |
 | [`0x27`](#0x27--valve-state-broadcast-)                        | Valve State Broadcast               | `0x0050` → Broadcast                                                   | Slot count + 3 bytes per slot; count is `0x00` (LEN `0x0D`) until a valve zone is configured, then `0x02` (LEN `0x13`); dispatched on CMD byte alone | Yes                     |
-| [`0x28`](#0x28--valve-control-command-)                        | Valve Control Command               | `0x00F0` Gateway → Broadcast                                           |                                                                                             | **No (doc only)**       |
+| [`0x28`](#0x28--valve-control-command-)                        | Valve Control Command               | `0x00F0` Gateway, `0xAC1D` → Broadcast                                 |                                                                                             | **No (doc only)**       |
 | [`0x29`](#0x29--valve-button-️)                                | Valve Button                        | `0x0062` Connect 8/10 → Broadcast                                      | 1-byte 0-based valve index; sent when a Valve button is pressed on the controller; the Touchscreen answers with `0x27`; dispatched on CMD byte alone | Yes (log-only)          |
-| [`0x2A`](#0x2a--favourite-control-command-)                    | Favourite Control Command           | `0x00F0` Gateway, `0x0062` Connect 8/10 → `0x0050` Touchscreen         | Unicast; dispatched on CMD byte alone (source-agnostic). The Connect 8/10 sends All Auto (`0x81`) for its Auto button | Yes (unified handler)   |
+| [`0x2A`](#0x2a--favourite-control-command-)                    | Favourite Control Command           | `0x00F0` Gateway, `0x0062` Connect 8/10, `0xAC1D` → `0x0050` Touchscreen | Unicast; dispatched on CMD byte alone (source-agnostic). The Connect 8/10 sends All Auto (`0x81`) for its Auto button | Yes (unified handler)   |
 | [`0x2B`](#0x2b--unknown-️)                                     | Unknown (heartbeat)                 | `0x0062` Connect 8/10 → `0x0050` Touchscreen                          | Unicast ~60 s; payload `[02 00]` observed; meaning unknown. Handler flags any deviation      | Yes (log-only + flag)   |
 | [`0x2C`](#0x2c--solar-status-broadcast-️)                      | Solar Status Broadcast              | `0x0050` Touchscreen → Broadcast                                       | Byte 11 = solar mode (Off/Auto/On); byte 12 = live dedicated-Solar output state; byte 15 = temperature differential °C; dispatched on CMD byte alone | Yes                     |
 | [`0x2D`](#0x2d--solar-setpoint-broadcast-)                     | Solar Setpoint Broadcast            | `0x0050` Touchscreen → Broadcast                                       | Fired when the solar setpoint is changed; 1-byte °C value; dispatched on CMD byte alone     | Yes (log-only)          |
@@ -254,10 +254,10 @@ Click any CMD in the first column to jump to the full section in [Commands](#com
 | [`0x36`](#0x36--internet-gateway-info-request-)               | Internet Gateway Info Request       | `0x0050` Touchscreen → `0x00F0` Gateway                                | Unicast; byte 10 selects the item (`0x01` network config, `0x02` comms status, `0x04` serial, `0x05` firmware version) and the Gateway answers with the matching `0x37`; `0x03` is a Reconnect command with no reply; dispatched on CMD byte alone | Yes (log-only)          |
 | [`0x37`](#0x37--internet-gateway-info-️)                       | Internet Gateway Info               | `0x00F0` → Broadcast                                                   | Byte 10 (item ID) selects the variant: network config (`0x01`), comms status (`0x02`), serial (`0x04`), firmware version (`0x05`); LEN alone is ambiguous (`0x02` and `0x05` are both `0x0F`); sent on its own and in reply to `0x36`; dispatched on CMD byte alone | Yes (routed by item)    |
 | [`0x38`](#0x38--register-data-️)                               | Register Data (Response)            | `0x0050` Touchscreen, `0x0074` ICI Gas Heater → Broadcast              | Universal register system — sub-dispatched by register + slot (see [Appendix A](#appendix-a-register-dispatch-table)); dispatched on CMD byte alone | Yes (unified handler)   |
-| [`0x39`](#0x39--register-read-request-)                        | Register Read Request               | `0x00F0` Gateway, `0x0070` Genus Heater → Broadcast                    | Dispatched on CMD byte alone (source-agnostic)                                              | Yes (unified handler)   |
-| [`0x3A`](#0x3a--register-write--control-)                      | Register Write / Control            | `0x00F0`, `0x0084` → Broadcast; `0x0050` → `0x00F0`                    | Same `{register, slot, value}` payload from every source; dispatched on CMD byte alone. Used for Light Zone state (`0xC0`–`0xC7`/slot `0x01`) and color (`0xD0`–`0xD7`/slot `0x01`), Heater Control (`0xE6`/slot `0x00`), Heater 2 pool setpoint (`0xEA`/slot `0x00`), and, from the Touchscreen, the Gateway's WiFi SSID/password (`0xD0`/`0xD1`, slot `0x07`) | Yes (both)              |
+| [`0x39`](#0x39--register-read-request-)                        | Register Read Request               | `0x00F0` Gateway, `0x0070` Genus Heater, `0xAC1D` → Broadcast          | Dispatched on CMD byte alone (source-agnostic)                                              | Yes (unified handler)   |
+| [`0x3A`](#0x3a--register-write--control-)                      | Register Write / Control            | `0x00F0`, `0x0084`, `0xAC1D` → Broadcast; `0x0050` → `0x00F0`          | Same `{register, slot, value}` payload from every source; dispatched on CMD byte alone. Used for Light Zone state (`0xC0`–`0xC7`/slot `0x01`) and color (`0xD0`–`0xD7`/slot `0x01`), Heater Control (`0xE6`/slot `0x00`), Heater 2 pool setpoint (`0xEA`/slot `0x00`), and, from the Touchscreen, the Gateway's WiFi SSID/password (`0xD0`/`0xD1`, slot `0x07`) | Yes (both)              |
 | [`0x3B`](#0x3b--pump-speed-)                                   | Pump Speed Telemetry                | `0x00A0` Viron XT Pump → Broadcast                                      | 2-byte big-endian RPM value; broadcast every ~60 seconds                                    | Yes                     |
-| [`0x3C`](#0x3c--light-resync-command-️)                       | Light Resync Command               | `0x0050` → Broadcast                                                   | 1-byte zone index; resyncs the zone's light; observed during light config and color operations; dispatched on CMD byte alone | Yes (log-only)          |
+| [`0x3C`](#0x3c--light-resync-command-️)                       | Light Resync Command               | `0x0050`, `0xAC1D` → Broadcast                                         | 1-byte zone index; resyncs the zone's light; observed during light config and color operations; dispatched on CMD byte alone | Yes (log-only)          |
 | [`0x41`](#0x41--valve-actuator-command-️)                  | Valve Actuator Command              | `0x0050` → `0x007F` Internal Control                                   | `{position, group}`; drives a motorised actuator group to one of its two endpoints on a mode change | Yes (log-only)          |
 | [`0xFD`](#0xfd--controller-daytimeclock-)                      | Controller Day/Time/Clock           | `0x0050` → Broadcast                                                   |                                                                                             | Yes                     |
 
@@ -668,6 +668,7 @@ Index `N` is channel `N+1` (`0x00`–`0x07` = Channels 1–8). Channel functions
   | 6      | `0x00`    | Off (Inactive)                          | none sent                |
 
 - To reach a state **without** cycling use [0x0F](#0x0f--set-channel-state-), which names the target state directly.
+- The Touchscreen does not check the source address: on Touchscreen firmware 2.8 it acts on this command sent from the Pool Controller ESP32's own address `0xAC1D` (`02 AC 1D FF FF 80 00 10 0D 66`). Our firmware sends it from `0xAC1D`.
 
 ---
 
@@ -981,7 +982,7 @@ Command that switches the current operating mode between Pool and Spa. Comes in 
 
 #### Set form ✅
 
-Sent from the Touchscreen address (`0x0050`) as a broadcast — an external sender must impersonate the Touchscreen. Discovered and confirmed by injection testing: sending these frames switches the mode.
+Sent from the Touchscreen address (`0x0050`) as a broadcast. Discovered and confirmed by injection testing: sending these frames switches the mode. The Touchscreen does not check the source address: on Touchscreen firmware 2.8 it acts on this command sent from the Pool Controller ESP32's own address `0xAC1D` (`02 AC 1D FF FF 80 00 15 0D 6B`). Our firmware sends it from `0xAC1D`.
 
 **Pattern:** `02 00 50 FF FF 80 00 15 0D F2`
 
@@ -1002,7 +1003,7 @@ Sent from the Touchscreen address (`0x0050`) as a broadcast — an external send
 **Notes:**
 
 - Uses the **same** mode encoding as the [0x14 Mode status](#0x14--mode-spapool-) (Spa=`0x00`, Pool=`0x01`) — unlike [0x2A Favourite Control](#0x2a--favourite-control-command-), whose Pool/Spa values are inverted relative to `0x14`
-- Alternative to switching mode via the Pool/Spa built-in favourites of [0x2A](#0x2a--favourite-control-command-): `0x2A` impersonates the Gateway and unicasts to the Touchscreen, whereas this command impersonates the Touchscreen and broadcasts
+- Alternative to switching mode via the Pool/Spa built-in favourites of [0x2A](#0x2a--favourite-control-command-): `0x2A` is unicast to the Touchscreen, whereas this command is a broadcast
 - The set form is not seen in normal bus traffic; only the [toggle form](#toggle-form-) is
 - The Touchscreen reacts to the injected frame with a fixed ~1 s burst that confirms the mode, republishes channel and valve state, drives the valve actuators via [0x41](#0x41--valve-actuator-command-️), and re-sends the pump speed — see [Mode-change sequence](#mode-change-sequence)
 
@@ -1264,6 +1265,7 @@ Command from the Internet Gateway (`0x00F0`) to set the pool or spa temperature 
 
 - The temperature value is repeated at bytes 11 and 12 — this is part of the message format, not two separate sends.
 - The controller will respond with an updated [Temperature Settings message (0x17)](#0x17--temperature-settings-).
+- The Touchscreen does not check the source address: on Touchscreen firmware 2.8 it acts on this command sent from the Pool Controller ESP32's own address `0xAC1D` (`02 AC 1D FF FF 80 00 19 0F 71`). Our firmware sends it from `0xAC1D`.
 
 ---
 
@@ -1632,6 +1634,7 @@ Sent by the Internet Gateway (`0x00F0`) to set a valve to a specific state direc
 
 - Whether Auto is accepted by the controller depends on the valve's configuration
 - The controller responds immediately with an updated Valve State Broadcast ([0x27](#0x27--valve-state-broadcast-))
+- The Touchscreen does not check the source address: on Touchscreen firmware 2.8 it acts on this command sent from the Pool Controller ESP32's own address `0xAC1D` (`02 AC 1D FF FF 80 00 28 0E 7F`). Our firmware sends it from `0xAC1D`.
 
 ---
 
@@ -1717,7 +1720,7 @@ The Connect 8/10's Auto button sends All Auto (`0x81`). When the controller is i
 - The Touchscreen acknowledges each activation with an immediate [0x05 Touchscreen Activation Ack](#0x05--touchscreen-activation-ack-️) (value `0x01`) followed by the relevant mode, active-channel, and channel-status broadcasts
 - Up to 6 user Favourites are supported (`0x02`–`0x07`). The labels for all 8 slots (including the Pool and Spa built-ins) are stored in registers `0x31`–`0x38` (slot `0x03`), readable via the register protocol ([0x38](#0x38--register-data-️))
 - Each slot's enabled/disabled state is stored in registers `0x21`–`0x28` (slot `0x03`), with `0x01` = enabled and `0x00` = disabled. Pool (`0x21`) and Spa (`0x22`) are always `0x01`. All Off (`0x80`) and All Auto (`0x81`) have no corresponding enable registers and are always available
-- This command requires the sender to impersonate the Internet Gateway (source address `0x00F0`)
+- The Touchscreen does not check the source address: on Touchscreen firmware 2.8 it acts on this command sent from the Pool Controller ESP32's own address `0xAC1D` (`02 AC 1D 00 50 80 00 2A 0D D2`). Our firmware sends it from `0xAC1D`.
 - There is no known "deactivate favourite" command: value `0xFF` (the "none active" sentinel used by the [Active Favourite register `0x20`](#appendix-a-register-dispatch-table)) was tested here and is ignored by the controller
 
 ---
@@ -2246,6 +2249,7 @@ Sent to poll a single controller register; the Touchscreen (`0x0050`) usually re
 
 - Both request and response are broadcast (destination `0xFFFF`).
 - The gateway appears to scan ranges of registers systematically.
+- The Touchscreen does not check the source address: on Touchscreen firmware 2.8 it acts on this command sent from the Pool Controller ESP32's own address `0xAC1D` (`02 AC 1D FF FF 80 00 39 0E 90`). Our firmware sends it from `0xAC1D`.
 
 ---
 
@@ -2282,7 +2286,7 @@ Writes a single controller register. This is the write counterpart to the [0x39 
 - Distinguished from the Touchscreen's `0x38` register-data broadcast by the CMD byte (`0x3A` here, `0x38` for broadcasts).
 - Not every register that can be read via [0x39](#0x39--register-read-request-) can be written. Writes to Timer registers (`0x08`–`0x17`, slot `0x04`) and Channel State (`0x8C`–`0x93`, slot `0x02`) are ignored silently — no reply, no rebroadcast, and the register keeps its previous value.
 - The controller applies the write and then re-broadcasts the new state via the matching `0x38` register update or a device-specific status message (e.g. [0x12 Device Status](#0x12--device-status-️) for the heater).
-- This command requires the sender to impersonate the Internet Gateway (source address `0x00F0`).
+- The Touchscreen does not check the source address: on Touchscreen firmware 2.8 it acts on this command sent from the Pool Controller ESP32's own address `0xAC1D` (`02 AC 1D FF FF 80 00 3A 0F 92`). Our firmware sends it from `0xAC1D`.
 - Decoded in code by `handle_register_write_request` — dispatched on the CMD byte alone (source-agnostic), log-only, no `pool_state` update (state comes from the follow-up `0x38` rebroadcast or device-specific status).
 
 ---
@@ -2526,7 +2530,7 @@ Resynchronizes a light zone's light. Broadcast by the Touchscreen (`0x0050`); ob
 **Notes:**
 
 - ⚠️ Exactly what the resync does at the light hardware (e.g. a power-cycle color resync) is not yet confirmed; the zone-index reading of byte 10 is based on resyncs observed for zones 1 and 2.
-- An external sender must impersonate the Touchscreen (source address `0x0050`).
+- The Touchscreen does not check the source address: on Touchscreen firmware 2.8 it acts on this command sent from the Pool Controller ESP32's own address `0xAC1D` (`02 AC 1D FF FF 80 00 3C 0D 92`). Our firmware sends it from `0xAC1D`.
 - Decoded in code by `handle_light_resync` — dispatched on the CMD byte alone (source-agnostic), log-only, no `pool_state` update. The firmware can also send it: multicolor light zones get a per-zone Resync button in Home Assistant.
 
 ---

@@ -16,9 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 ### Changed
+- Every command the firmware sends on the bus now comes from its own address (`0xAC1D`), instead of pretending to be the Internet Gateway (`0x00F0`) or the Touchscreen (`0x0050`). This covers channel toggles (`0x10`), favourites (`0x2A`), Pool/Spa mode (`0x15`), light state, colour and resync (`0x3A`, `0x3C`), heater on/off and setpoints (`0x3A`, `0x19`), valves (`0x28`) and register reads (`0x39`). The Touchscreen (firmware 2.8) acts on them all from this address. PROTOCOL.md and the README now say so in place of the old impersonation notes
 - A register read request (CMD `0x39`) for an unknown register is no longer recorded on the Unknown Messages page. The Touchscreen's `0x38` reply holds the same register and slot plus the value, and is still recorded as unhandled, so each unknown register the Internet Gateway polls now shows up once instead of twice. The request is still logged (e.g. `Register read request - 0x89/0x02`)
 - The TCP debug port (7373) no longer sends each bus message as a bare hex line after its log output. The frame is already shown in the decoder's `RX MSG` log line, so it appeared twice. The connect banner and the README's example session now describe the `RX MSG` lines
 ### Fixed
+- PROTOCOL.md no longer describes the Firmware Version broadcast (CMD `0x0A`), or the Internet Gateway's CMD `0x12`, as sent only at device startup. Both repeat about once a minute. The `0x0A` section now notes that on one install the Connect 8/10 and RolaChem never send `0x0A`, even when the Touchscreen reboots
 ### Removed
 ### Deprecated
 ### Security

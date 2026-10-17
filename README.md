@@ -454,7 +454,7 @@ Documents the proprietary serial protocol used by the Connect 10, reverse-engine
 - **Device addresses** — Touch screen (`0x0050`), controller (`0x006F`), chlorinator (`0x0090`), internet gateway (`0x00F0`)
 - **30+ decoded message types** — temperatures, channel states, lighting zones (state, colour, name, multicolor capability), chlorinator pH/ORP, controller clock, firmware versions, gateway network status, and more
 - **Register system** — A unified register/slot dispatch mechanism used for channel names, types, lighting colors, and labels
-- **Control commands** — How to toggle channels, set temperature setpoints, control lighting zones, switch pool/spa mode, and control the heater (all by impersonating the internet gateway address `0x00F0`)
+- **Control commands** — How to toggle channels, set temperature setpoints, control lighting zones, switch pool/spa mode, and control the heater (all sent from the firmware's own bus address `0xAC1D`)
 - **Checksum algorithm** and message validation rules
 
 ### [OTA_UPDATE.md](OTA_UPDATE.md) — Over-The-Air Firmware Updates

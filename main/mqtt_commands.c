@@ -19,9 +19,14 @@ static const char *TAG = "MQTT_COMMANDS";
 // UART Command Helpers
 // ======================================================
 
-// Send raw UART message to pool bus
-static void send_uart_command(const uint8_t *data, size_t len)
+// Send a command frame to the pool bus, filling in its header checksum
+// (byte 9, the sum of bytes 0-8) so callers can leave it 0x00
+static void send_uart_command(uint8_t *data, size_t len)
 {
+    uint8_t hdr_ck = 0;
+    for (int i = 0; i < 9; i++) hdr_ck += data[i];
+    data[9] = hdr_ck;
+
     if (bus_send_bytes(data, len) < 0) {
         ESP_LOGE(TAG, "Failed to send UART command");
     }
@@ -43,14 +48,15 @@ static void handle_channel_command(int channel_id, const char *payload, int payl
     }
 
     // Build toggle command
-    // Pattern: 02 00 F0 FF FF 80 00 10 0D 8D [CHANNEL_IDX] [CHECKSUM] 03
+    // Pattern: 02 AC 1D FF FF 80 00 10 0D 66 [CHANNEL_IDX] [CHECKSUM] 03
     // Checksum = channel_idx (only data byte)
     uint8_t cmd[] = {
         0x02,       // START
-        0x00, 0xF0, // SOURCE: Internet Gateway
+        SELF_DEVICE_ID_HI, SELF_DEVICE_ID_LO,   // SOURCE: this firmware (Pool Controller ESP32)
         0xFF, 0xFF, // DEST: Broadcast
         0x80, 0x00, // CONTROL
-        0x10, 0x0D, 0x8D, // Command pattern
+        0x10, 0x0D, // CMD, LEN
+        0x00,       // HDR checksum, filled in by send_uart_command
         channel_idx,       // Channel index (0-based)
         channel_idx,       // Checksum (= channel index)
         0x03               // END
@@ -94,15 +100,12 @@ static void handle_channel_mode_command(int channel_id, const char *payload, int
         0x00, 0x50,       // DEST: Touchscreen
         0x80, 0x00,       // CONTROL
         0x0F, 0x0E,       // CMD, LEN
-        0x00,             // HDR checksum, filled in below
+        0x00,             // HDR checksum, filled in by send_uart_command
         (uint8_t)channel_id,
         (uint8_t)state,
         (uint8_t)(channel_id + state),  // Data checksum
         0x03              // END
     };
-    uint8_t hdr_ck = 0;
-    for (int i = 0; i < 9; i++) hdr_ck += cmd[i];
-    cmd[9] = hdr_ck;
 
     ESP_LOGI(TAG, "Setting channel %d to %s (0x%02X)", channel_id, CHANNEL_STATE_NAMES[state], state);
     send_uart_command(cmd, sizeof(cmd));
@@ -201,13 +204,14 @@ static void handle_light_command(int zone, const char *payload, int payload_len)
     uint8_t reg_id = REG_ID_LIGHT_ZONE_STATE_0 + (zone - 1);
 
     // Build UART command
-    // Pattern: 02 00 F0 FF FF 80 00 3A 0F B9 [REG_ID] 01 [STATE] [CHECKSUM] 03
+    // Pattern: 02 AC 1D FF FF 80 00 3A 0F 92 [REG_ID] 01 [STATE] [CHECKSUM] 03
     uint8_t cmd[] = {
         0x02,       // START
-        0x00, 0xF0, // SOURCE: Internet Gateway
+        SELF_DEVICE_ID_HI, SELF_DEVICE_ID_LO,   // SOURCE: this firmware (Pool Controller ESP32)
         0xFF, 0xFF, // DEST: Broadcast
         0x80, 0x00, // CONTROL
-        0x3A, 0x0F, 0xB9, // Command pattern
+        0x3A, 0x0F, // CMD, LEN
+        0x00,       // HDR checksum, filled in by send_uart_command
         reg_id,     // Register ID (light zone)
         0x01,       // Slot ID (state)
         state,      // State value (OFF/AUTO/ON)
@@ -245,13 +249,14 @@ static void handle_light_color_command(int zone, const char *payload, int payloa
     uint8_t reg_id = REG_ID_LIGHT_ZONE_COLOR_0 + (zone - 1);
 
     // Build UART command
-    // Pattern: 02 00 F0 FF FF 80 00 3A 0F B9 [REG_ID] 01 [COLOR] [CHECKSUM] 03
+    // Pattern: 02 AC 1D FF FF 80 00 3A 0F 92 [REG_ID] 01 [COLOR] [CHECKSUM] 03
     uint8_t cmd[] = {
         0x02,       // START
-        0x00, 0xF0, // SOURCE: Internet Gateway
+        SELF_DEVICE_ID_HI, SELF_DEVICE_ID_LO,   // SOURCE: this firmware (Pool Controller ESP32)
         0xFF, 0xFF, // DEST: Broadcast
         0x80, 0x00, // CONTROL
-        0x3A, 0x0F, 0xB9, // Command pattern
+        0x3A, 0x0F, // CMD, LEN
+        0x00,       // HDR checksum, filled in by send_uart_command
         reg_id,     // Register ID (light zone color)
         0x01,       // Slot ID
         color,      // Color code (shared color table)
@@ -271,16 +276,16 @@ static void handle_light_resync_command(int zone)
 {
     uint8_t zone_idx = zone - 1;
 
-    // Build CMD 0x3C Light Resync broadcast, impersonating the Touchscreen
-    // (the only observed sender of this command)
-    // Pattern: 02 00 50 FF FF 80 00 3C 0D 19 [ZONE_IDX] [CHECKSUM] 03
+    // Build CMD 0x3C Light Resync broadcast
+    // Pattern: 02 AC 1D FF FF 80 00 3C 0D 92 [ZONE_IDX] [CHECKSUM] 03
     // Checksum = zone_idx (only data byte)
     uint8_t cmd[] = {
         0x02,       // START
-        0x00, 0x50, // SOURCE: Touchscreen
+        SELF_DEVICE_ID_HI, SELF_DEVICE_ID_LO,   // SOURCE: this firmware (Pool Controller ESP32)
         0xFF, 0xFF, // DEST: Broadcast
         0x80, 0x00, // CONTROL
-        0x3C, 0x0D, 0x19, // Command pattern
+        0x3C, 0x0D, // CMD, LEN
+        0x00,       // HDR checksum, filled in by send_uart_command
         zone_idx,   // Zone index (0-based)
         zone_idx,   // Checksum (= zone index)
         0x03        // END
@@ -320,14 +325,15 @@ static void handle_heater_command(const char *payload, int payload_len, int inde
     }
 
     // Build UART command
-    // Pattern: 02 00 F0 FF FF 80 00 3A 0F B9 [REG] 00 [STATE] [CHECKSUM] 03
+    // Pattern: 02 AC 1D FF FF 80 00 3A 0F 92 [REG] 00 [STATE] [CHECKSUM] 03
     // Checksum = reg + 0x00 + state
     uint8_t cmd[] = {
         0x02,             // START
-        0x00, 0xF0,       // SOURCE: Internet Gateway
+        SELF_DEVICE_ID_HI, SELF_DEVICE_ID_LO,   // SOURCE: this firmware (Pool Controller ESP32)
         0xFF, 0xFF,       // DEST: Broadcast
         0x80, 0x00,       // CONTROL
-        0x3A, 0x0F, 0xB9, // Command pattern
+        0x3A, 0x0F,       // CMD, LEN
+        0x00,             // HDR checksum, filled in by send_uart_command
         reg,              // Register ID (heater state)
         0x00,             // Slot
         state,            // State (0x00=Off, 0x01=On)
@@ -386,14 +392,15 @@ static void handle_favourite_command(const char *payload, int payload_len)
     }
 
     // Build CMD 0x2A to Touchscreen (0x0050)
-    // Pattern: 02 00 F0 00 50 80 00 2A 0D F9 [VALUE] [CHECKSUM] 03
+    // Pattern: 02 AC 1D 00 50 80 00 2A 0D D2 [VALUE] [CHECKSUM] 03
     // Checksum = value (only data byte)
     uint8_t cmd[] = {
         0x02,       // START
-        0x00, 0xF0, // SOURCE: Internet Gateway
+        SELF_DEVICE_ID_HI, SELF_DEVICE_ID_LO,   // SOURCE: this firmware (Pool Controller ESP32)
         0x00, 0x50, // DEST: Touchscreen
         0x80, 0x00, // CONTROL
-        0x2A, 0x0D, 0xF9, // Command pattern
+        0x2A, 0x0D, // CMD, LEN
+        0x00,       // HDR checksum, filled in by send_uart_command
         value,      // Favourite value
         value,      // Checksum (= value)
         0x03        // END
@@ -422,14 +429,15 @@ static void handle_mode_command(const char *payload, int payload_len)
         return;
     }
 
-    // Build CMD 0x15 Mode Set broadcast, impersonating the Touchscreen
-    // Pattern: 02 00 50 FF FF 80 00 15 0D F2 [MODE] [CHECKSUM] 03
+    // Build CMD 0x15 Mode Set broadcast
+    // Pattern: 02 AC 1D FF FF 80 00 15 0D 6B [MODE] [CHECKSUM] 03
     uint8_t cmd[] = {
         0x02,       // START
-        0x00, 0x50, // SOURCE: Touchscreen
+        SELF_DEVICE_ID_HI, SELF_DEVICE_ID_LO,   // SOURCE: this firmware (Pool Controller ESP32)
         0xFF, 0xFF, // DEST: Broadcast
         0x80, 0x00, // CONTROL
-        0x15, 0x0D, 0xF2, // Command pattern
+        0x15, 0x0D, // CMD, LEN
+        0x00,       // HDR checksum, filled in by send_uart_command
         mode_value, // Mode value (MODE_SPA or MODE_POOL)
         mode_value, // Checksum (just the mode value)
         0x03        // END
@@ -471,7 +479,7 @@ static void handle_temperature_command(bool is_pool, const char *payload, int pa
     int32_t temp_c = (int32_t)temp_parsed;  // safe: range-checked above
 
     // Build UART command
-    // Pattern: 02 00 F0 FF FF 80 00 19 0F 98 [TARGET] [TEMP_C] [TEMP_C] [CHECKSUM] 03
+    // Pattern: 02 AC 1D FF FF 80 00 19 0F 71 [TARGET] [TEMP_C] [TEMP_C] [CHECKSUM] 03
     // TARGET: 0x01=Pool, 0x02=Spa
     // Temperature byte is repeated as part of the message format
     // Checksum = TARGET + TEMP_C + TEMP_C
@@ -481,10 +489,11 @@ static void handle_temperature_command(bool is_pool, const char *payload, int pa
 
     uint8_t cmd[] = {
         0x02,             // START
-        0x00, 0xF0,       // SOURCE: Internet Gateway
+        SELF_DEVICE_ID_HI, SELF_DEVICE_ID_LO,   // SOURCE: this firmware (Pool Controller ESP32)
         0xFF, 0xFF,       // DEST: Broadcast
         0x80, 0x00,       // CONTROL
-        0x19, 0x0F, 0x98, // Command pattern
+        0x19, 0x0F,       // CMD, LEN
+        0x00,             // HDR checksum, filled in by send_uart_command
         target,           // Target (0x01=Pool, 0x02=Spa)
         temp_byte,        // Temperature °C
         temp_byte,        // Temperature °C (repeated)
@@ -503,7 +512,7 @@ static void handle_temperature_command(bool is_pool, const char *payload, int pa
 
 // Per-heater setpoint write.
 //  - Heater 1 (index 0): the system pool/spa setpoint command (CMD 0x19).
-//  - Heater 2 (index 1): gateway register write (CMD 0x3A) to 0xEA (pool) / 0xEB (spa).
+//  - Heater 2 (index 1): register write (CMD 0x3A) to 0xEA (pool) / 0xEB (spa).
 static void handle_heater_setpoint_command(int index, bool is_pool,
                                            const char *payload, int payload_len)
 {
@@ -511,7 +520,7 @@ static void handle_heater_setpoint_command(int index, bool is_pool,
         handle_temperature_command(is_pool, payload, payload_len);
         return;
     }
-    // index == 1 (Heater 2): gateway register write to 0xEA (pool) / 0xEB (spa).
+    // index == 1 (Heater 2): register write to 0xEA (pool) / 0xEB (spa).
 
     // Parse temperature value (Celsius)
     char temp_str[16];
@@ -538,13 +547,14 @@ static void handle_heater_setpoint_command(int index, bool is_pool,
     uint8_t slot = 0x00;
     uint8_t val  = (uint8_t)temp_parsed;
 
-    // Pattern: 02 00 F0 FF FF 80 00 3A 0F B9 [REG] [SLOT] [VAL] [CHECKSUM] 03
+    // Pattern: 02 AC 1D FF FF 80 00 3A 0F 92 [REG] [SLOT] [VAL] [CHECKSUM] 03
     uint8_t cmd[] = {
         0x02,             // START
-        0x00, 0xF0,       // SOURCE: Internet Gateway
+        SELF_DEVICE_ID_HI, SELF_DEVICE_ID_LO,   // SOURCE: this firmware (Pool Controller ESP32)
         0xFF, 0xFF,       // DEST: Broadcast
         0x80, 0x00,       // CONTROL
-        0x3A, 0x0F, 0xB9, // Register write command pattern
+        0x3A, 0x0F,       // CMD, LEN (register write)
+        0x00,             // HDR checksum, filled in by send_uart_command
         reg,              // Register ID
         slot,             // Slot
         val,              // Value °C
@@ -579,15 +589,16 @@ static void handle_valve_command(int valve_num, const char *payload, int payload
     }
 
     // Build UART command
-    // Pattern: 02 00 F0 FF FF 80 00 28 0E A6 [VALVE_IDX] [STATE] [CHECKSUM] 03
+    // Pattern: 02 AC 1D FF FF 80 00 28 0E 7F [VALVE_IDX] [STATE] [CHECKSUM] 03
     // Checksum = (valve_idx + state) & 0xFF
     uint8_t valve_idx = valve_num - 1;
     uint8_t cmd[] = {
         0x02,       // START
-        0x00, 0xF0, // SOURCE: Internet Gateway
+        SELF_DEVICE_ID_HI, SELF_DEVICE_ID_LO,   // SOURCE: this firmware (Pool Controller ESP32)
         0xFF, 0xFF, // DEST: Broadcast
         0x80, 0x00, // CONTROL
-        0x28, 0x0E, 0xA6, // Command pattern (checksum: 02+00+F0+FF+FF+80+00+28+0E = 0xA6)
+        0x28, 0x0E, // CMD, LEN
+        0x00,       // HDR checksum, filled in by send_uart_command
         valve_idx,         // Valve index (0-based)
         state,             // Target state (0=Off, 1=Auto, 2=On)
         (valve_idx + state) & 0xFF, // Data checksum

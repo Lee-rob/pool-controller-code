@@ -40,9 +40,9 @@ typedef struct {
 
 static QueueHandle_t s_queue = NULL;
 
-// Header bytes for a CMD 0x39 register read request originating from the Internet Gateway.
-// Header checksum 0xB7 = (02+00+F0+FF+FF+80+00+39+0E) & 0xFF, constant for all requests.
-#define REQUEST_HEADER "02 00 F0 FF FF 80 00 39 0E B7"
+// Header bytes for a CMD 0x39 register read request from this firmware (0xAC1D).
+// Header checksum 0x90 = (02+AC+1D+FF+FF+80+00+39+0E) & 0xFF, constant for all requests.
+#define REQUEST_HEADER "02 AC 1D FF FF 80 00 39 0E 90"
 
 static void send_request(uint8_t reg_id, uint8_t slot, const char *description)
 {
