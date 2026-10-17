@@ -389,7 +389,7 @@ Firmware-version announcement (`{major, minor}` payload) broadcast by multiple d
 
 - Decoded by the source-agnostic `handle_firmware_version` handler (matches on `data[7] == 0x0A` regardless of source); state is stored in per-device fields on `pool_state` (`touchscreen_version_*`, `controller_version_*`, `chlor_version_*`, `gateway_version_*`). Genus Heater (`0x0070`) firmware is logged only — no dedicated state field.
 - The same `{major, minor}` pair is also redundantly embedded in the Internet Gateway variant of [0x12 — Device Status](#0x12--device-status-️); firmware-version state population is performed once here.
-- Broadcast at device startup; appears alongside other announcement broadcasts (mode, channel status, time).
+- **Repeated about once a minute, not only at startup.** Each device that sends it repeats it periodically. On the install with the Viron Chlorinator, all six sources sent it, at intervals of about 28 s (Connect 8/10) to 60 s. On the install with the RolaChem, the Touchscreen and Internet Gateway send it about every 60 s, but the Connect 8/10 (`0x0062`) and RolaChem (`0x0090`) sent none in a 6.6-hour capture. Rebooting the Touchscreen did not prompt them to send one either. A device can therefore be present on the bus with its firmware version never announced.
 
 ---
 
@@ -941,7 +941,7 @@ Observed samples:
 | `05 01 06`           | 5     | 1     | `0x06` (=5+1)     |
 | `05 00 05`           | 5     | 0     | `0x05` (=5+0)     |
 
-Carries redundant firmware-version information already announced by [0x0A](#0x0a--firmware-version-); firmware-version state population is left to that handler alone. Broadcast at startup, paired with the gateway's `0x0A` firmware-version announcement.
+Carries redundant firmware-version information already announced by [0x0A](#0x0a--firmware-version-); firmware-version state population is left to that handler alone. Repeated about once a minute, like the Gateway's `0x0A` firmware-version announcement.
 
 ---
 
