@@ -26,6 +26,13 @@ I (22:45:24.834) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gatewa
 I (22:45:25.644) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 0F B6 02 00 00 02 03
 I (22:45:25.644) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway comms status - 0 (Idle)
 
+# Firmware version (item 0x05), injected as a Touchscreen request. The reply
+# has the same LENGTH (0x0F) as a comms status, so 0x37 must be routed by item.
+I (01:28:36.202) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0D 05 05 05 03
+I (01:28:36.202) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gateway info request - Firmware version
+I (01:28:36.565) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 0F B6 05 05 01 0B 03
+I (01:28:36.565) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway firmware version - 5.1
+
 # Reconnect command (item 0x03): two presses of the Touchscreen's Reconnect
 # button. No 0x37 reply.
 I (01:21:36.645) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0D 05 03 03 03

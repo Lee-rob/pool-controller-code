@@ -144,10 +144,11 @@ static const char *MSG_TYPE_ICI_HEATER_TEMP_SETTING = "02 00 74 FF FF 80 00 17 0
 // sends it for its Cleaning button, and this firmware originates it
 // unconditionally as its own 0xAC1D.
 
-// F0 Internet Gateway
-static const char *MSG_TYPE_SERIAL_NUMBER =           "02 00 F0 FF FF 80 00 37 11 B8";
-static const char *MSG_TYPE_GATEWAY_IP =              "02 00 F0 FF FF 80 00 37 15 BC";
-static const char *MSG_TYPE_GATEWAY_COMMS =           "02 00 F0 FF FF 80 00 37 0F B6";
+// Internet Gateway info (CMD 0x37) is dispatched on the CMD byte in
+// dispatch_message() and routed by its item ID (byte 10) in
+// handle_gateway_info() — see PROTOCOL.md command `0x37`. Variants of
+// different items can share a LENGTH (comms status and firmware version are
+// both 0x0F), so the LENGTH byte can't tell them apart.
 
 // Register read request (CMD 0x39) is dispatched source-agnostically in
 // dispatch_message() — see PROTOCOL.md command `0x39`. Observed from the
@@ -2036,8 +2037,7 @@ static bool handle_valve_state(
 }
 
 /**
- * Handler: Internet Gateway serial number message
- * Pattern: "02 00 F0 FF FF 80 00 37 11 B8"
+ * Handler: Internet Gateway serial number (CMD 0x37 item 0x04)
  */
 static bool handle_serial_number(
     const uint8_t *data, int len,
@@ -2066,8 +2066,8 @@ static bool handle_serial_number(
  * Sent by the Touchscreen (0x0050) to the Gateway (0x00F0). payload[0] is the
  * item, answered by the CMD 0x37 variant with the same byte 10: 0x01 = network
  * config (payload[1] = interface, 0x00 Wired / 0x01 WiFi), 0x02 = comms status,
- * 0x04 = serial number. 0x03 is the Touchscreen's Reconnect button, a command
- * with no reply. Log-only.
+ * 0x04 = serial number, 0x05 = firmware version. 0x03 is the Touchscreen's
+ * Reconnect button, a command with no reply. Log-only.
  */
 static bool handle_gateway_info_request(
     const uint8_t *data, int len,
@@ -2099,13 +2099,17 @@ static bool handle_gateway_info_request(
             ESP_LOGI(TAG, "%s Internet Gateway info request - Serial number", addr_info);
             undocumented = payload_len != 1;
             break;
+        case 0x05:
+            ESP_LOGI(TAG, "%s Internet Gateway info request - Firmware version", addr_info);
+            undocumented = payload_len != 1;
+            break;
         default:
             ESP_LOGI(TAG, "%s Internet Gateway info request - Unknown item (0x%02X)", addr_info, item);
             undocumented = true;
             break;
     }
 
-    // PROTOCOL.md 0x36: items 0x01-0x04 only, interface 0x00/0x01 only.
+    // PROTOCOL.md 0x36: items 0x01-0x05 only, interface 0x00/0x01 only.
     if (undocumented) {
         record_undocumented(data, len);
     }
@@ -2114,8 +2118,7 @@ static bool handle_gateway_info_request(
 }
 
 /**
- * Handler: Internet Gateway IP address message
- * Pattern: "02 00 F0 FF FF 80 00 37 15 BC"
+ * Handler: Internet Gateway network config (CMD 0x37 item 0x01)
  * payload[1] is the interface (GATEWAY_IFACE_WIRED / GATEWAY_IFACE_WIFI), and
  * each interface's config is stored separately.
  */
@@ -2160,8 +2163,7 @@ static bool handle_gateway_ip(
 }
 
 /**
- * Handler: Internet Gateway communications status message
- * Pattern: "02 00 F0 FF FF 80 00 37 0F B6"
+ * Handler: Internet Gateway communications status (CMD 0x37 item 0x02)
  */
 static bool handle_gateway_comms(
     const uint8_t *data, int len,
@@ -2177,11 +2179,11 @@ static bool handle_gateway_comms(
 
     ESP_LOGI(TAG, "%s Internet Gateway comms status - %u (%s)", addr_info, comms_status, status_text);
 
-    // Flag research-worthy anomalies (PROTOCOL.md 0x37 comms variant): byte 10
-    // is observed constant at 0x02, and a status code absent from
-    // GATEWAY_COMMS_STATUS is a newly-seen value worth capturing (the table
-    // notes "Add more status codes here as they are discovered").
-    if (payload[0] != 0x02 || strcmp(status_text, "Unknown") == 0) {
+    // Flag research-worthy anomalies (PROTOCOL.md 0x37 comms variant): a
+    // status code absent from GATEWAY_COMMS_STATUS is a newly-seen value worth
+    // capturing (the table notes "Add more status codes here as they are
+    // discovered").
+    if (strcmp(status_text, "Unknown") == 0) {
         record_undocumented(data, len);
     }
 
@@ -2193,6 +2195,52 @@ static bool handle_gateway_comms(
     }
 
     return true;
+}
+
+/**
+ * Handler: Internet Gateway firmware version (CMD 0x37 item 0x05)
+ * Payload {0x05, major, minor}. Only seen in reply to a CMD 0x36 request for
+ * item 0x05. Firmware-version state is populated by the generic CMD 0x0A
+ * handler (handle_firmware_version), so this handler is log-only.
+ */
+static bool handle_gateway_firmware_version(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 3) return false;
+
+    ESP_LOGI(TAG, "%s Internet Gateway firmware version - %d.%d", addr_info, payload[1], payload[2]);
+
+    return true;
+}
+
+/**
+ * Handler: Internet Gateway info (CMD 0x37) — routed by item ID.
+ * payload[0] is the item, the same value as byte 10 of the CMD 0x36 request it
+ * answers: 0x01 = network config, 0x02 = comms status, 0x04 = serial number,
+ * 0x05 = firmware version. An unknown item is logged and recorded, and never
+ * written into state.
+ */
+static bool handle_gateway_info(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 1) return false;
+
+    switch (payload[0]) {
+        case 0x01: return handle_gateway_ip(data, len, payload, payload_len, addr_info, ctx);
+        case 0x02: return handle_gateway_comms(data, len, payload, payload_len, addr_info, ctx);
+        case 0x04: return handle_serial_number(data, len, payload, payload_len, addr_info, ctx);
+        case 0x05: return handle_gateway_firmware_version(data, len, payload, payload_len, addr_info, ctx);
+        default:
+            ESP_LOGI(TAG, "%s Internet Gateway info - Unknown item (0x%02X)", addr_info, payload[0]);
+            record_undocumented(data, len);
+            return true;
+    }
 }
 
 /**
@@ -4456,6 +4504,12 @@ static bool dispatch_message(
         return handle_gateway_info_request(data, len, payload, payload_len, addr_info, ctx);
     }
 
+    // Internet Gateway info (CMD 0x37) — source-agnostic; only the Gateway
+    // (0x00F0) observed sending it. Routed by item ID, not LENGTH.
+    if (cmd == 0x37) {
+        return handle_gateway_info(data, len, payload, payload_len, addr_info, ctx);
+    }
+
     // Valve state broadcast (CMD 0x27) — source-agnostic; only the
     // Touchscreen (0x0050) observed sending it so far. One layout whose
     // length follows the slot count in payload[0].
@@ -4652,19 +4706,6 @@ static bool dispatch_message(
         match_pattern(data, len, MSG_TYPE_HINRG_HEATER_TEMP_SETTING) || 
         match_pattern(data, len, MSG_TYPE_ICI_HEATER_TEMP_SETTING)) {
         return handle_heater_temp_setting(data, len, payload, payload_len, addr_info, ctx);
-    }
-
-    // Gateway messages
-    if (match_pattern(data, len, MSG_TYPE_SERIAL_NUMBER)) {
-        return handle_serial_number(data, len, payload, payload_len, addr_info, ctx);
-    }
-
-    if (match_pattern(data, len, MSG_TYPE_GATEWAY_IP)) {
-        return handle_gateway_ip(data, len, payload, payload_len, addr_info, ctx);
-    }
-
-    if (match_pattern(data, len, MSG_TYPE_GATEWAY_COMMS)) {
-        return handle_gateway_comms(data, len, payload, payload_len, addr_info, ctx);
     }
 
     // Controller info messages

@@ -251,8 +251,8 @@ Click any CMD in the first column to jump to the full section in [Commands](#com
 | [`0x2C`](#0x2c--solar-status-broadcast-️)                      | Solar Status Broadcast              | `0x0050` Touchscreen → Broadcast                                       | Byte 11 = solar mode (Off/Auto/On); byte 12 = live dedicated-Solar output state; byte 15 = temperature differential °C; dispatched on CMD byte alone | Yes                     |
 | [`0x2D`](#0x2d--solar-setpoint-broadcast-)                     | Solar Setpoint Broadcast            | `0x0050` Touchscreen → Broadcast                                       | Fired when the solar setpoint is changed; 1-byte °C value; dispatched on CMD byte alone     | Yes (log-only)          |
 | [`0x31`](#0x31--water-temperature-reading-alt-)                | Water Temperature Reading (alt)     | `0x0062` → Broadcast                                                   | Same `{temp1, temp2}` field layout as `0x16`; different disconnected encoding (`>= 0xA0` vs `0x00`); shared handler, log-only | Yes (unified handler)   |
-| [`0x36`](#0x36--internet-gateway-info-request-)               | Internet Gateway Info Request       | `0x0050` Touchscreen → `0x00F0` Gateway                                | Unicast; byte 10 selects the item (`0x01` network config, `0x02` comms status, `0x04` serial) and the Gateway answers with the matching `0x37`; `0x03` is a Reconnect command with no reply; dispatched on CMD byte alone | Yes (log-only)          |
-| [`0x37`](#0x37--internet-gateway-info-️)                       | Internet Gateway Info               | `0x00F0` → Broadcast                                                   | LEN distinguishes serial (`0x11`), network config (`0x15`), comms status (`0x0F`) variants; sent on its own and in reply to `0x36` | Yes (3 handlers)        |
+| [`0x36`](#0x36--internet-gateway-info-request-)               | Internet Gateway Info Request       | `0x0050` Touchscreen → `0x00F0` Gateway                                | Unicast; byte 10 selects the item (`0x01` network config, `0x02` comms status, `0x04` serial, `0x05` firmware version) and the Gateway answers with the matching `0x37`; `0x03` is a Reconnect command with no reply; dispatched on CMD byte alone | Yes (log-only)          |
+| [`0x37`](#0x37--internet-gateway-info-️)                       | Internet Gateway Info               | `0x00F0` → Broadcast                                                   | Byte 10 (item ID) selects the variant: network config (`0x01`), comms status (`0x02`), serial (`0x04`), firmware version (`0x05`); LEN alone is ambiguous (`0x02` and `0x05` are both `0x0F`); sent on its own and in reply to `0x36`; dispatched on CMD byte alone | Yes (routed by item)    |
 | [`0x38`](#0x38--register-data-️)                               | Register Data (Response)            | `0x0050` Touchscreen, `0x0074` ICI Gas Heater → Broadcast              | Universal register system — sub-dispatched by register + slot (see [Appendix A](#appendix-a-register-dispatch-table)); dispatched on CMD byte alone | Yes (unified handler)   |
 | [`0x39`](#0x39--register-read-request-)                        | Register Read Request               | `0x00F0` Gateway, `0x0070` Genus Heater → Broadcast                    | Dispatched on CMD byte alone (source-agnostic)                                              | Yes (unified handler)   |
 | [`0x3A`](#0x3a--register-write--control-)                      | Register Write / Control            | `0x00F0`, `0x0084` → Broadcast; `0x0050` → `0x00F0`                    | Same `{register, slot, value}` payload from every source; dispatched on CMD byte alone. Used for Light Zone state (`0xC0`–`0xC7`/slot `0x01`) and color (`0xD0`–`0xD7`/slot `0x01`), Heater Control (`0xE6`/slot `0x00`), Heater 2 pool setpoint (`0xEA`/slot `0x00`), and, from the Touchscreen, the Gateway's WiFi SSID/password (`0xD0`/`0xD1`, slot `0x07`) | Yes (both)              |
@@ -1868,6 +1868,7 @@ Sent by the Touchscreen (`0x0050`) directly to the Internet Gateway (`0x00F0`) f
 02 00 50 00 F0 80 00 36 0E 06 01 00 01 03     Request network config, interface 0 (Wired)
 02 00 50 00 F0 80 00 36 0E 06 01 01 02 03     Request network config, interface 1 (WiFi)
 02 00 50 00 F0 80 00 36 0D 05 03 03 03        Reconnect to server
+02 00 50 00 F0 80 00 36 0D 05 05 05 03        Request firmware version
                               ^^ Item
                                  ^^ Interface index (item 0x01 only)
 ```
@@ -1880,10 +1881,11 @@ Sent by the Touchscreen (`0x0050`) directly to the Internet Gateway (`0x00F0`) f
 | `0x02`  | —                    | [Communications Status](#communications-status-len-0x0f-️)                                          |
 | `0x03`  | —                    | None — Reconnect command (see notes)                                                                  |
 | `0x04`  | —                    | [Serial Number](#serial-number-len-0x11-️)                                                           |
+| `0x05`  | —                    | [Firmware Version](#firmware-version-item-0x05-)                                                    |
 
 **Data Fields:**
 
-- Byte 10: Item (`0x01`–`0x04`; `0x03` = Reconnect)
+- Byte 10: Item (`0x01`–`0x05`; `0x03` = Reconnect)
 - Byte 11: Interface index, item `0x01` only (`0x00` = Wired, `0x01` = WiFi)
 
 **Notes:**
@@ -1901,6 +1903,7 @@ Sent by the Touchscreen (`0x0050`) directly to the Internet Gateway (`0x00F0`) f
   The same requests appear while the Gateway's WiFi is being changed from the Touchscreen, with the Touchscreen repeating them every few seconds while the Gateway reconnects. Outside these pages, a single serial-number request occasionally appears with no visible trigger.
 - **Interfaces**: `0x00` is the Gateway's wired (Ethernet) interface and `0x01` its WiFi. On the captured install the Gateway runs on WiFi, so interface `0x00` has only ever reported IP `0.0.0.0`.
 - **Item `0x03` (Reconnect)**: sent once for each press of the Server Connection status page's Reconnect button. No `0x37` with byte 10 = `0x03` appears in any capture; the Gateway answers only through its normal comms-status broadcasts, about every 10 s. The only capture of the button is of a Gateway that was already failing to connect and retrying every 10 s. Two presses left that cycle unchanged, so what a reconnect looks like on the bus from a connected Gateway is not yet known.
+- **Item `0x05` (Firmware Version)**: not seen from the Touchscreen in any capture; found by injecting the request. Item `0x06`, injected the same way, got no reply. Whether it is an unsupported query or a command with no visible effect is unknown.
 - While the Gateway is restarting the requests go unanswered.
 - Decoded in code by `handle_gateway_info_request` — log-only, no `pool_state` update. The reply goes through the existing `0x37` handlers.
 
@@ -1908,13 +1911,14 @@ Sent by the Touchscreen (`0x0050`) directly to the Internet Gateway (`0x00F0`) f
 
 ### 0x37 — Internet Gateway Info ⚠️
 
-Broadcast by the Internet Gateway (`0x00F0`) reporting gateway-level information. Three variants share the same CMD `0x37` and source, distinguished by the LENGTH byte and by byte 10, the item ID. The Gateway broadcasts them on its own, and also sends one in reply to a [0x36](#0x36--internet-gateway-info-request-) request from the Touchscreen for the same item ID.
+Broadcast by the Internet Gateway (`0x00F0`) reporting gateway-level information. Four variants share the same CMD `0x37` and source, distinguished by byte 10, the item ID. The LENGTH byte alone is not enough: Communications Status and Firmware Version are both LEN `0x0F`. The Gateway broadcasts them on its own, and also sends one in reply to a [0x36](#0x36--internet-gateway-info-request-) request from the Touchscreen for the same item ID.
 
 | LENGTH | Byte 10 | Variant                                                           | Purpose                       |
 |--------|---------|-------------------------------------------------------------------|-------------------------------|
 | `0x11` | `0x04`  | [Serial Number](#serial-number-len-0x11-️)                         | Gateway module serial         |
 | `0x15` | `0x01`  | [Network Config](#network-config-len-0x15-️)                       | IP address + WiFi signal      |
 | `0x0F` | `0x02`  | [Communications Status](#communications-status-len-0x0f-️)         | Internet connection state     |
+| `0x0F` | `0x05`  | [Firmware Version](#firmware-version-item-0x05-)                   | Gateway firmware version      |
 
 ---
 
@@ -2016,6 +2020,29 @@ Status of the gateway's internet connection.
 - `0xF002`: `61442` Communication error with server
 - `0xF003`: `61443` Communication error with server
 - `0xF004`: `61444` Communication error with server
+
+---
+
+#### Firmware Version (item `0x05`) ✅
+
+The Gateway's firmware version, the same value it broadcasts in [0x0A](#0x0a--firmware-version-) and [0x12](#0x12--device-status-️). Only seen in reply to a [0x36](#0x36--internet-gateway-info-request-) request for item `0x05`. It has the same LENGTH (`0x0F`) and header checksum as [Communications Status](#communications-status-len-0x0f-️), so it can only be told apart by byte 10.
+
+**Pattern:** `02 00 F0 FF FF 80 00 37 0F B6 05`
+
+**Example:**
+
+```
+02 00 F0 FF FF 80 00 37 0F B6 05 05 01 0B 03
+                              ^^ Item ID (0x05)
+                                 ^^ Major version (5)
+                                    ^^ Minor version (1) → firmware 5.1
+```
+
+**Data Fields:**
+
+- Byte 10: Item ID, always `0x05`
+- Byte 11: Major version
+- Byte 12: Minor version
 
 ---
 
