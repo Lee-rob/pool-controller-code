@@ -268,7 +268,10 @@ static void replay_one(block_t *b)
     (void)decode_message(b->frame, b->frame_len, &g_ctx);
     log_capture_enabled = false;
 
-    /* Split capture buffer into trimmed lines. */
+    /* Split capture buffer into trimmed lines, keeping only MSG_DECODER ones
+     * to match what find_blocks() reads as expected. Other tags the decoder
+     * triggers (e.g. FILTER_PUMP from the filter pump type learner) are
+     * covered by their own unit tests. */
     char *copy = strdup(log_capture_buf);
     char *save = NULL;
     for (char *line = strtok_r(copy, "\n", &save);
@@ -277,6 +280,8 @@ static void replay_one(block_t *b)
         char buf[4096];
         snprintf(buf, sizeof buf, "%s", line);
         rtrim(buf);
+        /* Captured lines are "<L> <TAG>: <body>". */
+        if (buf[0] == '\0' || strncmp(buf + 1, " MSG_DECODER:", 13) != 0) continue;
         sl_push(&b->actual, buf);
     }
     free(copy);
