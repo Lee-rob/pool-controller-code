@@ -50,10 +50,10 @@ static bool s_last_power_watts_valid[MAX_CHANNELS];
 // a change can force a re-publish with the right option list.
 static filter_pump_type_t s_last_filter_pump_type = FILTER_PUMP_TYPE_UNKNOWN;
 
-// Whether each channel's discovery was last published with the pump-mode
-// select, so a re-typed channel re-runs discovery and the select is added or
-// retracted even when its display name stays the same.
-static bool s_channel_discovery_pump_select[MAX_CHANNELS];
+// The type each channel's discovery was last published for, so a re-typed
+// channel re-runs discovery (adding or retracting the pump-mode select, and
+// changing its icon) even when its display name stays the same.
+static uint8_t s_channel_discovery_type[MAX_CHANNELS];
 static uint16_t s_last_power_watts[MAX_CHANNELS];
 
 // Whether the pump's discovery was last published with its power and energy
@@ -438,29 +438,41 @@ void mqtt_publish_channel(const pool_state_t *current_state, uint8_t channel_id)
     // in place rather than creating a duplicate. Also re-publish when the
     // channel gains or loses a configured wattage, since that decides whether
     // the power and energy sensors exist at all.
-    // The pump-mode select's option list depends on the learned pump type, so
+    // The Filter select's option list depends on the learned pump type, so
     // a change there (typically once, the first time the pump runs) has to
     // reach HA as a fresh discovery payload, and so does the channel gaining or
-    // losing the select altogether when it is re-typed.
-    bool pump_mode_select = (channel->type == CHANNEL_TYPE_FILTER);
+    // losing the select altogether when it is re-typed. Cleaning gets the
+    // select too, always with Off/Auto/On: only the Filter pump's type is
+    // learned.
+    bool is_filter = (channel->type == CHANNEL_TYPE_FILTER);
+    bool pump_mode_select = is_filter || channel->type == CHANNEL_TYPE_CLEANING;
     filter_pump_type_t filter_pump_type = filter_pump_type_get();
+
+    const char *icon = NULL;
+    if (is_filter) {
+        icon = "mdi:air-filter";
+    } else if (channel->type == CHANNEL_TYPE_CLEANING) {
+        icon = "mdi:vacuum";
+    }
 
     if (s_discovery_published.channels[idx] &&
         (strcmp(s_channel_discovery_name[idx], display_name) != 0 ||
          s_last_power_watts_valid[idx] != power_watts_valid ||
-         s_channel_discovery_pump_select[idx] != pump_mode_select ||
-         (pump_mode_select && s_last_filter_pump_type != filter_pump_type))) {
+         s_channel_discovery_type[idx] != channel->type ||
+         (is_filter && s_last_filter_pump_type != filter_pump_type))) {
         s_discovery_published.channels[idx] = false;
     }
 
     // Publish discovery if this is the first time seeing this channel (or the name changed)
     if (!s_discovery_published.channels[idx]) {
         mqtt_publish_channel_discovery_single(channel_id, display_name, include_state_entities,
-                                              power_watts_valid, pump_mode_select);
-        if (pump_mode_select) {
+                                              power_watts_valid, pump_mode_select,
+                                              is_filter && filter_pump_type == FILTER_PUMP_TYPE_MULTI_SPEED,
+                                              icon);
+        if (is_filter) {
             s_last_filter_pump_type = filter_pump_type;
         }
-        s_channel_discovery_pump_select[idx] = pump_mode_select;
+        s_channel_discovery_type[idx] = channel->type;
         s_discovery_published.channels[idx] = true;
         strncpy(s_channel_discovery_name[idx], display_name, sizeof(s_channel_discovery_name[idx]) - 1);
         s_channel_discovery_name[idx][sizeof(s_channel_discovery_name[idx]) - 1] = '\0';

@@ -42,11 +42,14 @@ void mqtt_publish_update_discovery_single(void);
 // is configured.
 // include_pump_mode_select adds the direct-set select (CMD 0x0F). Pump-driven
 // channels act on that command — Filter and Cleaning are both confirmed (see
-// PROTOCOL.md 0x0F) — but the select is offered on Filter alone, since only
-// that channel's pump type is tracked.
+// PROTOCOL.md 0x0F). multi_speed_pump picks the select's options:
+// Off/Auto/Low/Medium/High when true, Off/Auto/On otherwise.
+// icon (e.g. "mdi:air-filter") is set on the state sensor, toggle button and
+// pump-mode select; NULL leaves HA's default icons.
 void mqtt_publish_channel_discovery_single(int channel_num, const char *channel_name,
                                            bool include_state_entities, bool include_power_sensors,
-                                           bool include_pump_mode_select);
+                                           bool include_pump_mode_select, bool multi_speed_pump,
+                                           const char *icon);
 
 // Publish the system baseline power entities (the "Power: System" number, plus
 // the power and energy sensors when include_power_sensors is true — same

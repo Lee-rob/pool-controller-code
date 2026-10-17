@@ -1,5 +1,4 @@
 #include "mqtt_discovery.h"
-#include "filter_pump_type.h"
 #include "config.h"
 #include "mqtt_poolclient.h"
 #include "message_decoder.h"
@@ -789,7 +788,8 @@ static void publish_mode_discovery(const char *device_id, const char *mac_suffix
 static void publish_channel_discovery(const char *device_id, const char *mac_suffix,
                                       int channel_num, const char *channel_name,
                                       bool include_state_entities, bool include_power_sensors,
-                                      bool include_pump_mode_select)
+                                      bool include_pump_mode_select, bool multi_speed_pump,
+                                      const char *icon)
 {
     char avail_topic[128];
     char state_topic[128];
@@ -827,6 +827,7 @@ static void publish_channel_discovery(const char *device_id, const char *mac_suf
             cJSON_AddStringToObject(root, "name", display_name);
             cJSON_AddStringToObject(root, "state_topic", state_topic);
             cJSON_AddStringToObject(root, "value_template", "{{ value_json.state }}");
+            if (icon) cJSON_AddStringToObject(root, "icon", icon);
             add_entity_ids(root, "sensor", mac_suffix, sensor_uid, "channel_%d", channel_num);
             cJSON_AddStringToObject(root, "availability_topic", avail_topic);
             cJSON_AddItemToObject(root, "device", build_device_cjson(device_id, mac_suffix));
@@ -848,6 +849,7 @@ static void publish_channel_discovery(const char *device_id, const char *mac_suf
             cJSON_AddStringToObject(root, "name", display_name);
             cJSON_AddStringToObject(root, "command_topic", command_topic);
             cJSON_AddStringToObject(root, "payload_press", "TOGGLE");
+            if (icon) cJSON_AddStringToObject(root, "icon", icon);
             add_entity_ids(root, "button", mac_suffix, button_uid, "channel_%d_toggle", channel_num);
             cJSON_AddStringToObject(root, "availability_topic", avail_topic);
             cJSON_AddItemToObject(root, "device", build_device_cjson(device_id, mac_suffix));
@@ -933,9 +935,10 @@ static void publish_channel_discovery(const char *device_id, const char *mac_suf
     // a fixed ring. Supplements that button rather than replacing it.
     //
     // The option list depends on whether this channel drives a multi-speed
-    // pump, which the bus never states outright (see filter_pump_type.h). Until that
-    // is known we offer Off/Auto/On: "On" is valid either way, and it is also
-    // what resolves the question — a multi-speed channel answers it by
+    // pump, which the bus never states outright (see filter_pump_type.h); the
+    // caller works that out. Until it is known we offer Off/Auto/On: "On" is
+    // valid either way, and it is also what resolves the question — a
+    // multi-speed channel answers it by
     // reporting a named speed, a single-speed one by reporting On. This entity is
     // deliberately not optimistic: the selection only sticks once the
     // Touchscreen's own 0x0B broadcast confirms it, so a command the
@@ -964,7 +967,7 @@ static void publish_channel_discovery(const char *device_id, const char *mac_suf
         cJSON *opts = cJSON_CreateArray();
         cJSON_AddItemToArray(opts, cJSON_CreateString(CHANNEL_STATE_NAMES[0]));  // Off
         cJSON_AddItemToArray(opts, cJSON_CreateString(CHANNEL_STATE_NAMES[1]));  // Auto
-        if (filter_pump_type_get() == FILTER_PUMP_TYPE_MULTI_SPEED) {
+        if (multi_speed_pump) {
             // "On" is omitted deliberately: the Touchscreen normalises it to
             // High Speed on these channels and never reports it back, so it
             // would be an option that silently means something else.
@@ -977,6 +980,7 @@ static void publish_channel_discovery(const char *device_id, const char *mac_suf
         cJSON_AddItemToObject(root, "options", opts);
 
         cJSON_AddStringToObject(root, "value_template", "{{ value_json.state }}");
+        if (icon) cJSON_AddStringToObject(root, "icon", icon);
         add_entity_ids(root, "select", mac_suffix, mode_uid, "channel_%d_mode", channel_num);
         cJSON_AddStringToObject(root, "availability_topic", avail_topic);
         cJSON_AddItemToObject(root, "device", build_device_cjson(device_id, mac_suffix));
@@ -1672,7 +1676,8 @@ void mqtt_publish_pump_discovery_single(bool include_power_sensors)
 
 void mqtt_publish_channel_discovery_single(int channel_num, const char *channel_name,
                                            bool include_state_entities, bool include_power_sensors,
-                                           bool include_pump_mode_select)
+                                           bool include_pump_mode_select, bool multi_speed_pump,
+                                           const char *icon)
 {
     char device_id[32];
     mqtt_get_device_id(device_id, sizeof(device_id));
@@ -1683,7 +1688,7 @@ void mqtt_publish_channel_discovery_single(int channel_num, const char *channel_
     ESP_LOGI(TAG, "Publishing discovery for channel %d: %s", channel_num, channel_name);
     publish_channel_discovery(device_id, mac_suffix, channel_num, channel_name,
                               include_state_entities, include_power_sensors,
-                              include_pump_mode_select);
+                              include_pump_mode_select, multi_speed_pump, icon);
 }
 
 void mqtt_publish_system_power_discovery_single(bool include_power_sensors)

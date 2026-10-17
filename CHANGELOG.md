@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- Cleaning channels now get a Mode select in Home Assistant (e.g. "Cleaner Mode"), like the Filter channel's. It sets the channel directly to Off, Auto or On with CMD `0x0F`, instead of stepping it round with the toggle button. Like the Filter select, it only changes once the Touchscreen reports the new state
+- Filter and Cleaning channel entities in Home Assistant now have their own icons: `mdi:air-filter` for Filter and `mdi:vacuum` for Cleaning, on the state sensor, toggle button and Mode select. Icons customised in Home Assistant still take precedence
 ### Changed
 - Every command the firmware sends on the bus now comes from its own address (`0xAC1D`), instead of pretending to be the Internet Gateway (`0x00F0`) or the Touchscreen (`0x0050`). This covers channel toggles (`0x10`), favourites (`0x2A`), Pool/Spa mode (`0x15`), light state, colour and resync (`0x3A`, `0x3C`), heater on/off and setpoints (`0x3A`, `0x19`), valves (`0x28`) and register reads (`0x39`). The Touchscreen (firmware 2.8) acts on them all from this address. PROTOCOL.md and the README now say so in place of the old impersonation notes
 - A register read request (CMD `0x39`) for an unknown register is no longer recorded on the Unknown Messages page. The Touchscreen's `0x38` reply holds the same register and slot plus the value, and is still recorded as unhandled, so each unknown register the Internet Gateway polls now shows up once instead of twice. The request is still logged (e.g. `Register read request - 0x89/0x02`)

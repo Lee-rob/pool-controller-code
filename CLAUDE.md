@@ -88,7 +88,6 @@ main.c
   │     └─> bus (send CMD 0x39 requests)
   ├─> mqtt_poolclient (MQTT connection)
   │     ├─> mqtt_discovery (Home Assistant integration)
-  │     │     └─> filter_pump_type (pump-mode select option list)
   │     ├─> mqtt_commands (handle MQTT commands)
   │     │     └─> register_requester (read a register back after writing it)
   │     └─> firmware_update (publish update state, handle install command)
