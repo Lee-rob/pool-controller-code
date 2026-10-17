@@ -1,0 +1,55 @@
+# Valve State registers (0xE0-0xE7, slot 0x02; 0xE0 = Valve 1): the same
+# Off/Auto/On value as each slot's state byte in CMD 0x27. From the reference
+# install with two valve zones, reading 0xE0/0xE1 after each change made at the
+# Touchscreen.
+
+
+# Both valves Off
+I (02:53:43.703) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 00 00 04 03
+I (02:53:43.703) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (02:53:43.703) MSG_DECODER:   V1: Off (Inactive)
+I (02:53:43.703) MSG_DECODER:   V2: Off (Inactive)
+I (02:53:53.563) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 39 0E B7 E0 02 E2 03
+I (02:53:53.563) MSG_DECODER: [Internet Gateway -> Broadcast] Register read request - Valve State 1
+I (02:53:53.703) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E0 02 00 E2 03
+I (02:53:53.703) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 1 state - Off
+I (02:54:02.703) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E1 02 00 E3 03
+I (02:54:02.703) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 2 state - Off
+
+# Valve 1 -> Auto
+I (02:54:14.683) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 01 00 01 00 00 05 03
+I (02:54:14.683) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (02:54:14.683) MSG_DECODER:   V1: Auto (Inactive)
+I (02:54:14.683) MSG_DECODER:   V2: Off (Inactive)
+I (02:54:18.233) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E0 02 01 E3 03
+I (02:54:18.233) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 1 state - Auto
+I (02:54:25.863) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E1 02 00 E3 03
+I (02:54:25.863) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 2 state - Off
+
+# Valve 1 -> On
+I (02:54:32.723) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 02 01 01 00 00 07 03
+I (02:54:32.723) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (02:54:32.723) MSG_DECODER:   V1: On (Active)
+I (02:54:32.723) MSG_DECODER:   V2: Off (Inactive)
+I (02:54:44.643) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E0 02 02 E4 03
+I (02:54:44.643) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 1 state - On
+I (02:54:59.643) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E1 02 00 E3 03
+I (02:54:59.643) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 2 state - Off
+
+# Valve 2 -> On
+I (02:55:05.093) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 02 01 01 02 01 0A 03
+I (02:55:05.093) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (02:55:05.093) MSG_DECODER:   V1: On (Active)
+I (02:55:05.093) MSG_DECODER:   V2: On (Active)
+I (02:55:11.473) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E0 02 02 E4 03
+I (02:55:11.473) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 1 state - On
+I (02:55:14.863) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E1 02 02 E5 03
+I (02:55:14.863) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 2 state - On
+
+# Valve 1 -> Off (Valve 2 already back Off)
+I (02:55:34.723) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 27 13 0A 02 01 00 00 01 00 00 04 03
+I (02:55:34.723) MSG_DECODER: [Touch Screen -> Broadcast] Valve state (2 slots):
+I (02:55:34.723) MSG_DECODER:   V1: Off (Inactive)
+I (02:55:34.723) MSG_DECODER:   V2: Off (Inactive)
+I (02:55:39.723) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 E0 02 00 E2 03
+I (02:55:39.723) MSG_DECODER: [Touch Screen -> Broadcast] Valve zone 1 state - Off

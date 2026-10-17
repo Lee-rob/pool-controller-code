@@ -175,6 +175,8 @@ typedef enum {
 
     REG_ID_VALVE_LABEL_0           = 0xD0,  // Valve 0 label (0–7 → 0xD0–0xD7, slot 0x02; shares range with REG_ID_LIGHT_ZONE_COLOR_[0-7])
     REG_ID_VALVE_LABEL_7           = 0xD7,  // Valve 7 label (last)
+    REG_ID_VALVE_STATE_0           = 0xE0,  // Valve 0 state (0–7 → 0xE0–0xE7, slot 0x02; shares range with REG_ID_LIGHT_ZONE_ACTIVE_[0-7])
+    REG_ID_VALVE_STATE_7           = 0xE7,  // Valve 7 state (last)
 
     REG_ID_GATEWAY_WIFI_SSID       = 0xD0,  // Internet Gateway WiFi SSID (slot 0x07, Touchscreen -> Gateway CMD 0x3A write, ASCII string)
     REG_ID_GATEWAY_WIFI_PASSWORD   = 0xD1,  // Internet Gateway WiFi password (slot 0x07, same as above)

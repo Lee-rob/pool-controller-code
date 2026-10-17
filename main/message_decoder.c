@@ -570,6 +570,7 @@ static bool handle_light_zone_multicolor(const uint8_t *data, int len, const uin
 static bool handle_light_zone_name(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_valve_label(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_valve_configured(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
+static bool handle_valve_state_register(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_favourite_label(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_favourite_enable(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 static bool handle_active_favourite(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
@@ -619,6 +620,9 @@ static const register_handler_t REGISTER_HANDLERS[] = {
 
     // Valve configured flags (slot 0x02, registers 0x26-0x2D = valves 1-8)
     {REG_ID_VALVE_CONFIGURED_0,      REG_ID_VALVE_CONFIGURED_7,      0x02, handle_valve_configured,      "Valve Configured"},
+
+    // Valve states (slot 0x02, registers 0xE0-0xE7 = valves 1-8): 0x00 Off, 0x01 Auto, 0x02 On
+    {REG_ID_VALVE_STATE_0,           REG_ID_VALVE_STATE_7,           0x02, handle_valve_state_register,  "Valve State"},
 
     // Active favourite (slot 0x03, register 0x20): CMD 0x2A value, 0xFF = none active
     {REG_ID_ACTIVE_FAVOURITE,        REG_ID_ACTIVE_FAVOURITE,        0x03, handle_active_favourite,      "Active Favourite"},
@@ -3869,6 +3873,41 @@ static bool handle_valve_configured(
 
     ESP_LOGI(TAG, "%s Valve zone %d configured - %s", addr_info,
              zone_num, configured ? "Yes" : "No");
+
+    return true;
+}
+
+/**
+ * Handler: Valve state register
+ * Register range: 0xE0-0xE7, Slot: 0x02 (0x00 = Off, 0x01 = Auto, 0x02 = On),
+ * the same value as the state byte of the valve's slot in CMD 0x27.
+ * Log-only — the CMD 0x27 Valve State Broadcast is what updates
+ * pool_state->valves[].
+ */
+static bool handle_valve_state_register(
+    const uint8_t *data, int len,
+    const uint8_t *payload, int payload_len,
+    const char *addr_info,
+    message_decoder_context_t *ctx)
+{
+    if (payload_len < 3) return false;
+
+    uint8_t reg_id = payload[0];
+    uint8_t state = payload[2];
+    uint8_t zone_num = reg_id - REG_ID_VALVE_STATE_0 + 1;
+
+    if (state > 0x02) {
+        ESP_LOGW(TAG, "%s Valve state out of expected range 0x00-0x02: 0x%02X", addr_info, state);
+        record_undocumented(data, len);
+    } else if (state && zone_num > MAX_VALVE_SLOTS) {
+        // Valves 3-8 have only ever read 0x00 (CMD 0x27 carries two slots)
+        ESP_LOGW(TAG, "%s Valve zone %d state - beyond the %d supported valve slots",
+                 addr_info, zone_num, MAX_VALVE_SLOTS);
+        record_undocumented(data, len);
+    }
+
+    const char *state_name = (state < CHANNEL_STATE_COUNT) ? CHANNEL_STATE_NAMES[state] : "Unknown";
+    ESP_LOGI(TAG, "%s Valve zone %d state - %s", addr_info, zone_num, state_name);
 
     return true;
 }
