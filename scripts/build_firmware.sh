@@ -44,11 +44,13 @@ export IDF_PATH="${use_idf}"
 # shellcheck disable=SC1091
 source "${IDF_PATH}/export.sh" >/dev/null
 
-# The only registry components used by the firmware are vendored under
-# components/. Keeping component-manager disabled makes builds deterministic,
-# avoids a network lookup on every fresh configuration, and works in restricted
-# containers where psutil cannot inspect CMake's parent process.
-export IDF_COMPONENT_MANAGER=0
+# Release source packages vendor the registry components for deterministic,
+# offline builds. A normal Git checkout can instead let ESP-IDF resolve the
+# dependencies declared in main/idf_component.yml.
+if [[ -d "${project_root}/components/mdns" &&
+      -d "${project_root}/components/led_strip" ]]; then
+    export IDF_COMPONENT_MANAGER=0
+fi
 
 # Minimal Codex/CI images may lack the two host-side build executables even
 # after ESP-IDF's own installer has supplied its compiler and Python packages.

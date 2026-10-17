@@ -409,8 +409,9 @@ The script uses an existing `IDF_PATH` when supplied (including the project
 dev container's preinstalled `/opt/esp/idf`). Otherwise it installs the pinned
 ESP-IDF v5.5 toolchain once under `.cache/` and reuses it for later builds, so a
 missing shell-local ESP-IDF environment does not require manual reconstruction.
-The required `mdns` and `led_strip` components are vendored under `components/`,
-so builds do not rely on ESP-IDF's online component manager.
+Release source packages vendor the required `mdns` and `led_strip` components
+under `components/` for offline builds. A normal Git checkout resolves them
+from `main/idf_component.yml` through ESP-IDF's component manager.
 
 The lower-level commands remain available after sourcing ESP-IDF directly:
 
