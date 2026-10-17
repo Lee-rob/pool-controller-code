@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 ### Changed
 ### Fixed
+- Dedicated Connect 10 Solar status now uses CMD `0x2C` for both the selected
+  Off/Auto/On mode and actual output activity. Live captures confirm that the
+  Solar channel's CMD `0x0B` tuple remains `FC 00 00` and the CMD `0x0D`
+  ordinary-channel bitmap omits Solar even while its output is energised.
 ### Removed
 ### Deprecated
 ### Security

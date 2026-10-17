@@ -139,12 +139,18 @@ static void uart_spy_reset(void)
 
 pool_state_t       s_pool_state;
 SemaphoreHandle_t  s_pool_state_mutex = NULL;
+static bool s_run_tasks_immediately = false;
 
 uint32_t xTaskGetTickCount(void) { return 1000; }
 BaseType_t xTaskCreate(TaskFunction_t task, const char *name, uint32_t stack_depth,
                        void *arg, unsigned priority, TaskHandle_t *handle)
 {
-    (void)task; (void)name; (void)stack_depth; (void)arg; (void)priority; (void)handle;
+    (void)name; (void)stack_depth; (void)priority; (void)handle;
+    if (s_run_tasks_immediately) {
+        task(arg);
+        return pdPASS;
+    }
+    (void)task; (void)arg;
     return pdFALSE;
 }
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
@@ -806,6 +812,68 @@ void test_valve_invalid_payload(void)
     TEST_ASSERT(s_uart_calls == 0, "valve/1/set Toggle: no UART write (invalid payload)");
 }
 
+static void configure_spa_valves(bool return_active, bool jets_active, bool spa_mode)
+{
+    static int spa_mutex;
+    memset(&s_pool_state, 0, sizeof(s_pool_state));
+    s_pool_state_mutex = &spa_mutex;
+    s_pool_state.valves[SPA_RETURN_VALVE_NUM - 1].configured = true;
+    s_pool_state.valves[SPA_RETURN_VALVE_NUM - 1].active = return_active;
+    s_pool_state.valves[SPA_JETS_VALVE_NUM - 1].configured = true;
+    s_pool_state.valves[SPA_JETS_VALVE_NUM - 1].active = jets_active;
+    s_pool_state.mode_valid = true;
+    s_pool_state.mode = spa_mode ? MODE_SPA : MODE_POOL;
+    s_run_tasks_immediately = true;
+}
+
+static void finish_spa_valve_test(void)
+{
+    s_run_tasks_immediately = false;
+    s_pool_state_mutex = NULL;
+    memset(&s_pool_state, 0, sizeof(s_pool_state));
+}
+
+void test_spa_jets_off_closes_jets_after_return_is_active(void)
+{
+    configure_spa_valves(true, true, true);
+    send_cmd("spa_jets/set", "Off");
+    TEST_ASSERT(s_uart_calls == 1, "spa_jets Off: one close when spa return is already active");
+    TEST_ASSERT(s_uart_buf[10] == SPA_JETS_VALVE_NUM - 1, "spa_jets Off: targets Auxiliary 2");
+    TEST_ASSERT(s_uart_buf[11] == 0x00, "spa_jets Off: closes Auxiliary 2");
+    finish_spa_valve_test();
+}
+
+void test_spa_jets_high_closes_return_after_jets_are_active(void)
+{
+    configure_spa_valves(true, true, true);
+    send_cmd("spa_jets/set", "High");
+    TEST_ASSERT(s_uart_calls == 1, "spa_jets High: one close when jets are already active");
+    TEST_ASSERT(s_uart_buf[10] == SPA_RETURN_VALVE_NUM - 1, "spa_jets High: targets Auxiliary 1");
+    TEST_ASSERT(s_uart_buf[11] == 0x00, "spa_jets High: closes Auxiliary 1");
+    finish_spa_valve_test();
+}
+
+void test_spa_jets_low_opens_both_paths(void)
+{
+    configure_spa_valves(false, false, true);
+    send_cmd("spa_jets/set", "Low");
+    TEST_ASSERT(s_uart_calls == 2, "spa_jets Low: opens both auxiliary paths");
+    TEST_ASSERT(s_uart_buf[10] == SPA_JETS_VALVE_NUM - 1, "spa_jets Low: second command targets Auxiliary 2");
+    TEST_ASSERT(s_uart_buf[11] == 0x02, "spa_jets Low: Auxiliary 2 is commanded On");
+    finish_spa_valve_test();
+}
+
+void test_spa_mode_refuses_to_close_primary_without_confirmed_return(void)
+{
+    configure_spa_valves(false, false, false);
+    send_cmd("mode/set", "Spa");
+    TEST_ASSERT(s_uart_calls == 1, "mode/set Spa: only opens Auxiliary 1 without confirmation");
+    TEST_ASSERT(s_uart_buf[7] == 0x28, "mode/set Spa: sends a valve command before mode command");
+    TEST_ASSERT(s_uart_buf[10] == SPA_RETURN_VALVE_NUM - 1, "mode/set Spa: opens Auxiliary 1");
+    TEST_ASSERT(s_uart_buf[11] == 0x02, "mode/set Spa: Auxiliary 1 command is On");
+    finish_spa_valve_test();
+}
+
 // ======================================================
 // Wrong device ID
 // ======================================================
@@ -905,6 +973,10 @@ int main(void)
     test_valve_1_on();
     test_valve_1_auto();
     test_valve_invalid_payload();
+    test_spa_jets_off_closes_jets_after_return_is_active();
+    test_spa_jets_high_closes_return_after_jets_are_active();
+    test_spa_jets_low_opens_both_paths();
+    test_spa_mode_refuses_to_close_primary_without_confirmed_return();
 
     printf("\n--- Routing Tests ---\n");
     test_wrong_device_id();

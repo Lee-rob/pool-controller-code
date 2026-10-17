@@ -1778,6 +1778,50 @@ void mqtt_publish_valve_discovery_single(int valve_num, const char *valve_name)
     publish_valve_discovery(device_id, mac_suffix, valve_num, valve_name);
 }
 
+void mqtt_publish_spa_jets_discovery_single(void)
+{
+    char device_id[32];
+    mqtt_get_device_id(device_id, sizeof(device_id));
+
+    char mac_suffix[DEVICE_MAC_SUFFIX_LEN];
+    device_get_mac_suffix(mac_suffix, sizeof(mac_suffix));
+
+    char avail_topic[128];
+    char state_topic[128];
+    char command_topic[128];
+    snprintf(avail_topic, sizeof(avail_topic), "pool/%s/availability", device_id);
+    snprintf(state_topic, sizeof(state_topic), "pool/%s/spa_jets/state", device_id);
+    snprintf(command_topic, sizeof(command_topic), "pool/%s/spa_jets/set", device_id);
+
+    char uid[64];
+    snprintf(uid, sizeof(uid), DISCOVERY_ID_PREFIX "_%s_spa_jets", mac_suffix);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "name", "Spa Jets");
+    cJSON_AddStringToObject(root, "state_topic", state_topic);
+    cJSON_AddStringToObject(root, "command_topic", command_topic);
+
+    cJSON *opts = cJSON_CreateArray();
+    cJSON_AddItemToArray(opts, cJSON_CreateString("Off"));
+    cJSON_AddItemToArray(opts, cJSON_CreateString("Low"));
+    cJSON_AddItemToArray(opts, cJSON_CreateString("High"));
+    cJSON_AddItemToObject(root, "options", opts);
+
+    add_entity_ids(root, "select", mac_suffix, uid, "spa_jets");
+    cJSON_AddStringToObject(root, "availability_topic", avail_topic);
+    cJSON_AddItemToObject(root, "device", build_device_cjson(device_id, mac_suffix));
+
+    char *json_str = cJSON_PrintUnformatted(root);
+    if (!json_str) {
+        ESP_LOGE(TAG, "Failed to print spa jets discovery JSON");
+        cJSON_Delete(root);
+        return;
+    }
+    publish_discovery("select", uid, json_str);
+    cJSON_free(json_str);
+    cJSON_Delete(root);
+}
+
 // ======================================================
 // Favourite Select Discovery
 // ======================================================

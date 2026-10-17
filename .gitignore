@@ -6,3 +6,5 @@ main/secrets.h
 .cache/
 .vscode/settings.json
 .installer-preview/
+test/*.o
+test/test_commands

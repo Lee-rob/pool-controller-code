@@ -21,6 +21,7 @@ static struct {
     bool channels[MAX_CHANNELS];
     bool lights[MAX_LIGHT_ZONES];
     bool valves[MAX_VALVE_SLOTS];
+    bool spa_jets;
     bool heaters[MAX_HEATERS];
     bool gas_heaters[MAX_HEATERS];
     bool heater_setpoints[MAX_HEATERS];
@@ -60,6 +61,7 @@ static bool s_heater_telemetry_discovery[MAX_HEATERS];
 static bool s_last_heater_online[MAX_HEATERS];
 static int64_t s_last_heater_sample_epoch[MAX_HEATERS];
 static uint16_t s_last_power_watts[MAX_CHANNELS];
+static uint8_t s_last_spa_jets_state = 0xFF;
 
 // Whether the pump's discovery was last published with its power and energy
 // sensors. They only exist once the pump has broadcast a wattage — it also
@@ -1021,6 +1023,37 @@ void mqtt_publish_valve(const pool_state_t *current_state, uint8_t valve_num)
     s_last_published_state.valves[idx].configured = true;
 
     ESP_LOGI(TAG, "Published valve %d: %s (%s)", valve_num, state_name, display_name);
+}
+
+void mqtt_publish_spa_jets(const pool_state_t *current_state)
+{
+    if (!current_state) return;
+
+    const valve_state_t *spa_return = &current_state->valves[SPA_RETURN_VALVE_NUM - 1];
+    const valve_state_t *spa_jets = &current_state->valves[SPA_JETS_VALVE_NUM - 1];
+    if (!spa_return->configured || !spa_jets->configured) return;
+
+    // Jets closed is Off. With jets open, the normal spa return determines
+    // whether flow is shared (Low) or concentrated through the jets (High).
+    uint8_t state = !spa_jets->active ? SPA_JETS_OFF_STATE
+                    : spa_return->active ? SPA_JETS_LOW_STATE
+                                         : SPA_JETS_HIGH_STATE;
+    static const char *STATE_NAMES[] = {"Off", "Low", "High"};
+
+    if (!s_discovery_published.spa_jets) {
+        mqtt_publish_spa_jets_discovery_single();
+        s_discovery_published.spa_jets = true;
+    } else if (s_last_spa_jets_state == state) {
+        return;
+    }
+
+    char device_id[32];
+    mqtt_get_device_id(device_id, sizeof(device_id));
+    char topic[128];
+    snprintf(topic, sizeof(topic), "pool/%s/spa_jets/state", device_id);
+    mqtt_publish(topic, STATE_NAMES[state], 0, true);
+    s_last_spa_jets_state = state;
+    ESP_LOGI(TAG, "Published coordinated spa jets state: %s", STATE_NAMES[state]);
 }
 
 // ======================================================

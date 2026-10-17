@@ -48,7 +48,9 @@ void mqtt_publish_service_mode(const pool_state_t *state) {}
 void mqtt_publish_light(const pool_state_t *state, uint8_t zone) {}
 void mqtt_publish_channel(const pool_state_t *state, uint8_t channel) {}
 void mqtt_publish_valve(const pool_state_t *state, uint8_t valve_num) {}
+void mqtt_publish_spa_jets(const pool_state_t *state) {}
 void mqtt_publish_favourite(const pool_state_t *state) {}
+void mqtt_commands_enforce_spa_valve_safety(const pool_state_t *state) {}
 
 // Mock register requester
 void register_requester_notify(void) {}
@@ -660,54 +662,97 @@ void test_decode_connect10_dedicated_solar_channel(void)
                 "Dedicated Solar captured Off and inactive");
 }
 
-void test_active_channels_bitmask_is_authoritative(void)
+void test_dedicated_solar_uses_solar_mode_and_active_bitmask(void)
 {
     init_test_context();
 
-    // Establish channel 2 as dedicated solar.  Deliberately give CMD 0x0B a
-    // stale active byte to reproduce the dashboard's always-on symptom.
-    uint8_t status[] = {
+    // Learn that channel 2 is the dedicated Solar controller. Its 0x0B tuple
+    // says Off/inactive, as observed on the Connect 10.
+    uint8_t channel_status[] = {
         0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x0B, 0x25, 0x00,
         0x08,
         0x09, 0x01, 0x00,
-        0xFC, 0x01, 0x01,
+        0xFC, 0x00, 0x00,
         0x11, 0x01, 0x00,
         0x00, 0x00, 0x00,
         0x00, 0x00, 0x00,
         0x00, 0x00, 0x00,
         0x00, 0x00, 0x00,
         0x01, 0x01, 0x01,
-        0x25, 0x03
+        0x23, 0x03
     };
-    TEST_ASSERT(decode_message(status, sizeof(status), &test_ctx),
-                "Solar channel status should decode");
-    TEST_ASSERT(test_pool_state.channels[1].active,
-                "Before CMD 0x0D, channel status active is the fallback");
+    TEST_ASSERT(decode_message(channel_status, sizeof(channel_status), &test_ctx),
+                "Dedicated Solar baseline channel status decoded");
 
-    uint8_t none_active[] = {
+    // CMD 0x2C supplies the authoritative selected mode.
+    uint8_t solar_auto[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x2C, 0x12, 0x0E,
+        0x23, 0x01, 0x00, 0x00, 0x04, 0x07, 0x2F, 0x03
+    };
+    TEST_ASSERT(decode_message(solar_auto, sizeof(solar_auto), &test_ctx),
+                "Solar Auto status decoded");
+    TEST_ASSERT(test_pool_state.solar_mode_valid && test_pool_state.solar_mode == 1,
+                "Solar mode retained from CMD 0x2C");
+    TEST_ASSERT(test_pool_state.channels[1].state == 1,
+                "Dedicated Solar channel reports Auto from CMD 0x2C");
+    TEST_ASSERT(test_pool_state.solar_active_valid && !test_pool_state.solar_active,
+                "CMD 0x2C runtime byte is used before an active bitmap arrives");
+
+    // A running capture changes CMD 0x2C payload byte 2 from 0x00 to 0x02.
+    // Before CMD 0x0D has arrived this remains a useful startup fallback.
+    uint8_t solar_running[] = {
+        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x2C, 0x12, 0x0E,
+        0x2B, 0x01, 0x02, 0x00, 0x02, 0x04, 0x34, 0x03
+    };
+    TEST_ASSERT(decode_message(solar_running, sizeof(solar_running), &test_ctx),
+                "Running Solar status decoded");
+    TEST_ASSERT(test_pool_state.solar_active && test_pool_state.channels[1].active,
+                "Dedicated Solar uses the 0x2C runtime fallback at startup");
+
+    // Live captures show CMD 0x0D is authoritative. With only channel 8
+    // active, it must clear the stale/running 0x2C hint for channel 2.
+    uint8_t active_channels[] = {
         0x02, 0x00, 0x50, 0x00, 0x6F, 0x80, 0x00, 0x0D, 0x0D, 0x5B,
-        0x00, 0x00, 0x03
+        0x80, 0x80, 0x03
     };
-    TEST_ASSERT(decode_message(none_active, sizeof(none_active), &test_ctx),
-                "Inactive-channel bitmask should decode");
-    TEST_ASSERT(!test_pool_state.channels[1].active,
-                "CMD 0x0D clears stale solar activity");
+    TEST_ASSERT(decode_message(active_channels, sizeof(active_channels), &test_ctx),
+                "Active-channel bitmap decoded");
+    TEST_ASSERT(test_pool_state.active_channels_valid &&
+                test_pool_state.active_channels_bitmask == 0x80,
+                "Active-channel bitmap retained");
+    TEST_ASSERT(!test_pool_state.channels[1].active &&
+                test_pool_state.solar_active_valid && !test_pool_state.solar_active,
+                "CMD 0x0D clears stale dedicated Solar activity");
 
-    // A later CMD 0x0B with the stale byte must not overwrite the authoritative
-    // bitmask state.
-    TEST_ASSERT(decode_message(status, sizeof(status), &test_ctx),
-                "Repeated solar channel status should decode");
-    TEST_ASSERT(!test_pool_state.channels[1].active,
-                "CMD 0x0B cannot reassert stale solar activity");
+    // A following stale 0x0B tuple must not overwrite either authoritative
+    // value: mode stays Auto and activity stays off.
+    TEST_ASSERT(decode_message(channel_status, sizeof(channel_status), &test_ctx),
+                "Following dedicated Solar channel status decoded");
+    TEST_ASSERT(test_pool_state.channels[1].state == 1 && !test_pool_state.channels[1].active,
+                "Stale 0x0B Solar tuple cannot overwrite mode or activity");
 
+    // A following stale 0x2C runtime byte must not reassert activity after an
+    // authoritative bitmap has been observed.
+    TEST_ASSERT(decode_message(solar_running, sizeof(solar_running), &test_ctx),
+                "Repeated running Solar status decoded");
+    TEST_ASSERT(!test_pool_state.channels[1].active,
+                "CMD 0x2C cannot reassert activity after CMD 0x0D");
+
+    // Bit 1 is channel 2. Setting it reports Solar active while mode remains
+    // Auto; a later 0x2C inactive runtime hint must not clear it.
     uint8_t solar_active[] = {
         0x02, 0x00, 0x50, 0x00, 0x6F, 0x80, 0x00, 0x0D, 0x0D, 0x5B,
-        0x02, 0x02, 0x03
+        0x82, 0x82, 0x03
     };
     TEST_ASSERT(decode_message(solar_active, sizeof(solar_active), &test_ctx),
-                "Solar-active bitmask should decode");
+                "Solar-active channel bitmap decoded");
+    TEST_ASSERT(test_pool_state.channels[1].active && test_pool_state.solar_active,
+                "CMD 0x0D marks dedicated Solar active");
+
+    TEST_ASSERT(decode_message(solar_auto, sizeof(solar_auto), &test_ctx),
+                "Stale inactive Auto Solar status decoded");
     TEST_ASSERT(test_pool_state.channels[1].active,
-                "CMD 0x0D marks solar active only while channel 2 is energised");
+                "CMD 0x2C cannot clear activity after CMD 0x0D");
 }
 
 // An install with a plain single-speed pump never broadcasts CMD 0x3B, so
@@ -1588,7 +1633,7 @@ int main(void)
     printf("\n--- Channel Status Tests ---\n");
     test_decode_channel_status_all_off();
     test_decode_connect10_dedicated_solar_channel();
-    test_active_channels_bitmask_is_authoritative();
+    test_dedicated_solar_uses_solar_mode_and_active_bitmask();
     test_channel_status_resets_pump_speed_when_filter_off();
     test_channel_status_does_not_fabricate_pump_speed_without_telemetry();
     test_decode_channel_status_lights_active();

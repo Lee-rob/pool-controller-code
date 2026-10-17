@@ -89,6 +89,13 @@
 #define MAX_HEATERS                    2       // Maximum number of heaters
 #define MAX_LIGHT_ZONES                8       // Maximum number of light zones (protocol max)
 #define MAX_VALVE_SLOTS                2       // Maximum number of valve slots
+#define SPA_RETURN_VALVE_NUM           1       // Auxiliary 1: normal spa return
+#define SPA_JETS_VALVE_NUM             2       // Auxiliary 2: high-power spa jets
+#define SPA_VALVE_CONFIRM_TIMEOUT_MS   3000    // Wait for controller active-state confirmation
+#define SPA_VALVE_SAFE_OVERLAP_MS      5000    // Keep both paths open before closing either one
+#define SPA_JETS_OFF_STATE             0
+#define SPA_JETS_LOW_STATE             1
+#define SPA_JETS_HIGH_STATE            2
 #define MAX_FAVOURITES                 8       // Pool + Spa (built-ins) + Favourites 1–6 (user)
 #define MAX_TIMERS                     16      // Maximum number of timers (registers 0x08-0x17)
 #define MAX_REGISTER_LABELS            32      // Maximum number of register label entries

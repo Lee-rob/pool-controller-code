@@ -22,18 +22,37 @@ typedef struct {
     uint32_t sequence;
 } channel_target_task_args_t;
 
+typedef enum {
+    SPA_JETS_OFF,
+    SPA_JETS_LOW,
+    SPA_JETS_HIGH,
+    SPA_ENTER_MODE,
+    SPA_RAW_VALVE_CLOSE,
+} spa_transition_t;
+
+typedef struct {
+    spa_transition_t transition;
+    uint8_t valve_num;
+    uint8_t valve_state;
+    uint32_t sequence;
+} spa_transition_task_args_t;
+
 static uint32_t s_channel_target_sequence[MAX_CHANNELS];
+static uint32_t s_spa_transition_sequence;
+static uint32_t s_spa_transition_running;
 
 // ======================================================
 // UART Command Helpers
 // ======================================================
 
 // Send raw UART message to pool bus
-static void send_uart_command(const uint8_t *data, size_t len)
+static bool send_uart_command(const uint8_t *data, size_t len)
 {
     if (bus_send_bytes(data, len) < 0) {
         ESP_LOGE(TAG, "Failed to send UART command");
+        return false;
     }
+    return true;
 }
 
 // ======================================================
@@ -517,36 +536,230 @@ static void handle_favourite_command(const char *payload, int payload_len)
 // Mode Control
 // ======================================================
 
+static bool payload_equals(const char *payload, int payload_len, const char *expected)
+{
+    size_t expected_len = strlen(expected);
+    return payload_len >= 0 && (size_t)payload_len == expected_len &&
+           memcmp(payload, expected, expected_len) == 0;
+}
+
+static bool send_mode_value(uint8_t mode_value)
+{
+    // CMD 0x15 Mode Set broadcast, impersonating the Touchscreen.
+    uint8_t cmd[] = {
+        0x02,
+        0x00, 0x50,
+        0xFF, 0xFF,
+        0x80, 0x00,
+        0x15, 0x0D, 0xF2,
+        mode_value,
+        mode_value,
+        0x03
+    };
+
+    ESP_LOGI(TAG, "Sending mode switch to %s", mode_value == MODE_POOL ? "Pool" : "Spa");
+    return send_uart_command(cmd, sizeof(cmd));
+}
+
+static bool send_valve_state_raw(uint8_t valve_num, uint8_t state)
+{
+    if (valve_num < 1 || valve_num > MAX_VALVE_SLOTS || state > 0x02) return false;
+
+    uint8_t valve_idx = valve_num - 1;
+    uint8_t cmd[] = {
+        0x02,
+        0x00, 0xF0,
+        0xFF, 0xFF,
+        0x80, 0x00,
+        0x28, 0x0E, 0xA6,
+        valve_idx,
+        state,
+        (valve_idx + state) & 0xFF,
+        0x03
+    };
+
+    ESP_LOGI(TAG, "Setting valve %u to %s", valve_num,
+             state == 0x02 ? "On" : (state == 0x01 ? "Auto" : "Off"));
+    return send_uart_command(cmd, sizeof(cmd));
+}
+
+static bool get_spa_valve_state(bool *return_active, bool *jets_active,
+                                bool *spa_mode)
+{
+    if (!s_pool_state_mutex) return false;
+    if (xSemaphoreTake(s_pool_state_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) != pdTRUE) return false;
+
+    const valve_state_t *spa_return = &s_pool_state.valves[SPA_RETURN_VALVE_NUM - 1];
+    const valve_state_t *spa_jets = &s_pool_state.valves[SPA_JETS_VALVE_NUM - 1];
+    bool configured = spa_return->configured && spa_jets->configured;
+    if (configured) {
+        if (return_active) *return_active = spa_return->active;
+        if (jets_active) *jets_active = spa_jets->active;
+        if (spa_mode) *spa_mode = s_pool_state.mode_valid && s_pool_state.mode == MODE_SPA;
+    }
+    xSemaphoreGive(s_pool_state_mutex);
+    return configured;
+}
+
+static bool spa_transition_is_current(uint32_t sequence)
+{
+    return __atomic_load_n(&s_spa_transition_sequence, __ATOMIC_RELAXED) == sequence;
+}
+
+static void finish_spa_transition(uint32_t sequence)
+{
+    uint32_t expected = sequence;
+    __atomic_compare_exchange_n(&s_spa_transition_running, &expected, 0, false,
+                                __ATOMIC_RELAXED, __ATOMIC_RELAXED);
+}
+
+// Open one branch and obtain controller confirmation before any other branch
+// is allowed to close. The overlap also covers actuator travel on controllers
+// that report the requested state before the valve has physically finished.
+static bool ensure_spa_valve_open(uint8_t valve_num, uint32_t sequence)
+{
+    bool return_active = false;
+    bool jets_active = false;
+    if (!get_spa_valve_state(&return_active, &jets_active, NULL)) return false;
+
+    bool active = valve_num == SPA_RETURN_VALVE_NUM ? return_active : jets_active;
+    if (!active) {
+        if (!send_valve_state_raw(valve_num, 0x02)) return false;
+
+        int confirm_polls = SPA_VALVE_CONFIRM_TIMEOUT_MS / 100;
+        for (int poll = 0; poll < confirm_polls; poll++) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            if (!spa_transition_is_current(sequence)) return false;
+            if (get_spa_valve_state(&return_active, &jets_active, NULL) &&
+                (valve_num == SPA_RETURN_VALVE_NUM ? return_active : jets_active)) {
+                active = true;
+                break;
+            }
+        }
+        if (!active) {
+            ESP_LOGE(TAG, "Valve %u did not confirm active; refusing to close another return path",
+                     valve_num);
+            return false;
+        }
+    }
+
+    // Always keep an overlap, even if the controller already reported the
+    // branch active. Its active bit is command/state feedback rather than a
+    // physical end-stop signal, so the actuator may still be travelling.
+    int overlap_polls = SPA_VALVE_SAFE_OVERLAP_MS / 100;
+    for (int overlap = 0; overlap < overlap_polls; overlap++) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        if (!spa_transition_is_current(sequence)) return false;
+    }
+
+    if (!get_spa_valve_state(&return_active, &jets_active, NULL)) return false;
+    return valve_num == SPA_RETURN_VALVE_NUM ? return_active : jets_active;
+}
+
+static void spa_transition_task(void *arg)
+{
+    spa_transition_task_args_t request = *(spa_transition_task_args_t *)arg;
+    free(arg);
+    bool safe_to_close = false;
+
+    switch (request.transition) {
+    case SPA_JETS_LOW:
+        // This transition only opens paths, so no sequencing delay is needed.
+        send_valve_state_raw(SPA_RETURN_VALVE_NUM, 0x02);
+        if (spa_transition_is_current(request.sequence)) {
+            send_valve_state_raw(SPA_JETS_VALVE_NUM, 0x02);
+        }
+        break;
+
+    case SPA_JETS_OFF:
+        safe_to_close = ensure_spa_valve_open(SPA_RETURN_VALVE_NUM, request.sequence);
+        if (safe_to_close && spa_transition_is_current(request.sequence)) {
+            send_valve_state_raw(SPA_JETS_VALVE_NUM, 0x00);
+        }
+        break;
+
+    case SPA_JETS_HIGH:
+        safe_to_close = ensure_spa_valve_open(SPA_JETS_VALVE_NUM, request.sequence);
+        if (safe_to_close && spa_transition_is_current(request.sequence)) {
+            send_valve_state_raw(SPA_RETURN_VALVE_NUM, 0x00);
+        }
+        break;
+
+    case SPA_ENTER_MODE:
+        safe_to_close = ensure_spa_valve_open(SPA_RETURN_VALVE_NUM, request.sequence);
+        if (safe_to_close && spa_transition_is_current(request.sequence)) {
+            send_mode_value(MODE_SPA);
+        }
+        break;
+
+    case SPA_RAW_VALVE_CLOSE: {
+        uint8_t other = request.valve_num == SPA_RETURN_VALVE_NUM
+                            ? SPA_JETS_VALVE_NUM : SPA_RETURN_VALVE_NUM;
+        safe_to_close = ensure_spa_valve_open(other, request.sequence);
+        if (safe_to_close && spa_transition_is_current(request.sequence)) {
+            send_valve_state_raw(request.valve_num, request.valve_state);
+        }
+        break;
+    }
+    }
+
+    finish_spa_transition(request.sequence);
+    vTaskDelete(NULL);
+}
+
+static void start_spa_transition(spa_transition_t transition,
+                                 uint8_t valve_num, uint8_t valve_state)
+{
+    spa_transition_task_args_t *args = malloc(sizeof(*args));
+    if (!args) {
+        ESP_LOGE(TAG, "No memory for spa valve transition worker");
+        return;
+    }
+
+    uint32_t sequence = __atomic_add_fetch(&s_spa_transition_sequence, 1, __ATOMIC_RELAXED);
+    if (sequence == 0) {
+        sequence = __atomic_add_fetch(&s_spa_transition_sequence, 1, __ATOMIC_RELAXED);
+    }
+    args->transition = transition;
+    args->valve_num = valve_num;
+    args->valve_state = valve_state;
+    args->sequence = sequence;
+    __atomic_store_n(&s_spa_transition_running, sequence, __ATOMIC_RELAXED);
+
+    if (xTaskCreate(spa_transition_task, "spa_valves", 3072, args, 3, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to start spa valve transition worker");
+        finish_spa_transition(sequence);
+        free(args);
+    }
+}
+
 static void handle_mode_command(const char *payload, int payload_len)
 {
     ESP_LOGI(TAG, "Mode command: %.*s", payload_len, payload);
 
     // CMD 0x15 uses the same encoding as the 0x14 status: MODE_SPA/MODE_POOL
     uint8_t mode_value;
-    if (strncmp(payload, "Pool", payload_len) == 0) {
+    if (payload_equals(payload, payload_len, "Pool")) {
         mode_value = MODE_POOL;
-    } else if (strncmp(payload, "Spa", payload_len) == 0) {
+    } else if (payload_equals(payload, payload_len, "Spa")) {
         mode_value = MODE_SPA;
     } else {
         ESP_LOGE(TAG, "Invalid mode command: %.*s (expected Pool/Spa)", payload_len, payload);
         return;
     }
 
-    // Build CMD 0x15 Mode Set broadcast, impersonating the Touchscreen
-    // Pattern: 02 00 50 FF FF 80 00 15 0D F2 [MODE] [CHECKSUM] 03
-    uint8_t cmd[] = {
-        0x02,       // START
-        0x00, 0x50, // SOURCE: Touchscreen
-        0xFF, 0xFF, // DEST: Broadcast
-        0x80, 0x00, // CONTROL
-        0x15, 0x0D, 0xF2, // Command pattern
-        mode_value, // Mode value (MODE_SPA or MODE_POOL)
-        mode_value, // Checksum (just the mode value)
-        0x03        // END
-    };
+    if (mode_value == MODE_SPA) {
+        bool return_active = false;
+        bool jets_active = false;
+        if (get_spa_valve_state(&return_active, &jets_active, NULL) &&
+            !return_active && !jets_active) {
+            ESP_LOGW(TAG, "Both spa returns are closed; opening Auxiliary 1 before Spa mode");
+            start_spa_transition(SPA_ENTER_MODE, 0, 0);
+            return;
+        }
+    }
 
-    ESP_LOGI(TAG, "Sending mode switch to %s", mode_value == MODE_POOL ? "Pool" : "Spa");
-    send_uart_command(cmd, sizeof(cmd));
+    send_mode_value(mode_value);
 }
 
 // ======================================================
@@ -677,36 +890,73 @@ static void handle_valve_command(int valve_num, const char *payload, int payload
     ESP_LOGI(TAG, "Valve %d command: %.*s", valve_num, payload_len, payload);
 
     uint8_t state;
-    if (strncmp(payload, "On", payload_len) == 0) {
+    if (payload_equals(payload, payload_len, "On")) {
         state = 0x02;
-    } else if (strncmp(payload, "Auto", payload_len) == 0) {
+    } else if (payload_equals(payload, payload_len, "Auto")) {
         state = 0x01;
-    } else if (strncmp(payload, "Off", payload_len) == 0) {
+    } else if (payload_equals(payload, payload_len, "Off")) {
         state = 0x00;
     } else {
         ESP_LOGE(TAG, "Invalid valve command: %.*s (expected Off/Auto/On)", payload_len, payload);
         return;
     }
 
-    // Build UART command
-    // Pattern: 02 00 F0 FF FF 80 00 28 0E A6 [VALVE_IDX] [STATE] [CHECKSUM] 03
-    // Checksum = (valve_idx + state) & 0xFF
-    uint8_t valve_idx = valve_num - 1;
-    uint8_t cmd[] = {
-        0x02,       // START
-        0x00, 0xF0, // SOURCE: Internet Gateway
-        0xFF, 0xFF, // DEST: Broadcast
-        0x80, 0x00, // CONTROL
-        0x28, 0x0E, 0xA6, // Command pattern (checksum: 02+00+F0+FF+FF+80+00+28+0E = 0xA6)
-        valve_idx,         // Valve index (0-based)
-        state,             // Target state (0=Off, 1=Auto, 2=On)
-        (valve_idx + state) & 0xFF, // Data checksum
-        0x03               // END
-    };
+    // In Spa mode the primary pool-return actuator is closed. A raw command
+    // that may close one auxiliary is therefore sequenced behind opening the
+    // other one. Pool mode is safe because its primary return remains open.
+    if (state != 0x02 &&
+        (valve_num == SPA_RETURN_VALVE_NUM || valve_num == SPA_JETS_VALVE_NUM)) {
+        bool return_active = false;
+        bool jets_active = false;
+        bool spa_mode = false;
+        if (get_spa_valve_state(&return_active, &jets_active, &spa_mode) && spa_mode) {
+            bool other_active = valve_num == SPA_RETURN_VALVE_NUM ? jets_active : return_active;
+            if (!other_active) {
+                ESP_LOGW(TAG, "Sequencing valve %d close behind opening the other spa return",
+                         valve_num);
+                start_spa_transition(SPA_RAW_VALVE_CLOSE, (uint8_t)valve_num, state);
+                return;
+            }
+        }
+    }
 
-    ESP_LOGI(TAG, "Setting valve %d to %s", valve_num,
-             state == 0x02 ? "On" : (state == 0x01 ? "Auto" : "Off"));
-    send_uart_command(cmd, sizeof(cmd));
+    send_valve_state_raw((uint8_t)valve_num, state);
+}
+
+static void handle_spa_jets_command(const char *payload, int payload_len)
+{
+    spa_transition_t transition;
+    if (payload_equals(payload, payload_len, "Off")) {
+        transition = SPA_JETS_OFF;
+    } else if (payload_equals(payload, payload_len, "Low")) {
+        transition = SPA_JETS_LOW;
+    } else if (payload_equals(payload, payload_len, "High")) {
+        transition = SPA_JETS_HIGH;
+    } else {
+        ESP_LOGE(TAG, "Invalid spa jets command: %.*s (expected Off/Low/High)",
+                 payload_len, payload);
+        return;
+    }
+
+    ESP_LOGI(TAG, "Spa jets command: %.*s", payload_len, payload);
+    start_spa_transition(transition, 0, 0);
+}
+
+void mqtt_commands_enforce_spa_valve_safety(const pool_state_t *state)
+{
+    if (!state || !state->mode_valid || state->mode != MODE_SPA) return;
+
+    const valve_state_t *spa_return = &state->valves[SPA_RETURN_VALVE_NUM - 1];
+    const valve_state_t *spa_jets = &state->valves[SPA_JETS_VALVE_NUM - 1];
+    if (!spa_return->configured || !spa_jets->configured ||
+        spa_return->active || spa_jets->active) {
+        return;
+    }
+
+    if (__atomic_load_n(&s_spa_transition_running, __ATOMIC_RELAXED) != 0) return;
+
+    ESP_LOGE(TAG, "Unsafe Spa state observed: both auxiliary returns closed; opening Auxiliary 1");
+    start_spa_transition(SPA_JETS_OFF, 0, 0);
 }
 
 // ======================================================
@@ -816,6 +1066,9 @@ void mqtt_handle_command(const char *topic, int topic_len, const char *data, int
     }
     else if (strncmp(cmd_topic, "system/power/set", 16) == 0) {
         handle_system_power_command(data, data_len);
+    }
+    else if (cmd_topic_len == 12 && strncmp(cmd_topic, "spa_jets/set", 12) == 0) {
+        handle_spa_jets_command(data, data_len);
     }
     else if (strncmp(cmd_topic, "mode/set", 8) == 0) {
         handle_mode_command(data, data_len);

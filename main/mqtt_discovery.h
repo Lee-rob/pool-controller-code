@@ -62,6 +62,9 @@ void mqtt_publish_light_discovery_single(int zone_num, const char *zone_name, ui
 // Publish individual valve discovery (called when valve first configured or name changes)
 void mqtt_publish_valve_discovery_single(int valve_num, const char *valve_name);
 
+// Publish the coordinated Auxiliary 1/Auxiliary 2 Spa Jets select.
+void mqtt_publish_spa_jets_discovery_single(void);
+
 // Publish individual heater discovery (called when heater first publishes state)
 void mqtt_publish_heater_discovery_single(int index);
 

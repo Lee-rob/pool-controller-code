@@ -227,6 +227,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             snprintf(topic, sizeof(topic), "pool/%s/valve/%d/set", device_id, i);
             esp_mqtt_client_subscribe(s_mqtt_client, topic, 0);
         }
+        snprintf(topic, sizeof(topic), "pool/%s/spa_jets/set", device_id);
+        esp_mqtt_client_subscribe(s_mqtt_client, topic, 0);
 
         // Subscribe to the firmware-update install and check commands
         snprintf(topic, sizeof(topic), "pool/%s/update/install", device_id);
@@ -257,6 +259,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             xSemaphoreGive(s_pool_state_mutex);
         }
         if (have_state_snapshot) {
+            mqtt_publish_spa_jets(state_snapshot);
             // This custom build targets an installed Viron heater at 0x0071.
             // Republish its discovery before any fresh heater reply so retained
             // telemetry from an earlier boot is immediately marked unavailable.

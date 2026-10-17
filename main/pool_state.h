@@ -248,10 +248,19 @@ typedef struct {
     // Channels (up to MAX_CHANNELS)
     channel_state_t channels[MAX_CHANNELS];
     uint8_t num_channels;
-    // CMD 0x0D is the authoritative live relay/output bitmask.  The active
-    // byte repeated in CMD 0x0B can lag or be unreliable for dedicated solar.
-    uint8_t active_channels_mask;
-    bool active_channels_mask_valid;
+
+    // CMD 0x0D is the controller's authoritative live-output bitmap for every
+    // configured channel, including dedicated Solar (type 0xFC).
+    uint8_t active_channels_bitmask;
+    bool active_channels_valid;
+
+    // CMD 0x2C is authoritative for the dedicated Solar controller's selected
+    // mode. Its runtime byte is retained only as a startup fallback until the
+    // first CMD 0x0D active-channel bitmap arrives.
+    uint8_t solar_mode;       // 0=Off, 1=Auto, 2=On
+    bool solar_mode_valid;
+    bool solar_active;
+    bool solar_active_valid;
 
     // Valves (up to MAX_VALVE_SLOTS)
     valve_state_t valves[MAX_VALVE_SLOTS];

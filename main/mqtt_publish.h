@@ -66,6 +66,9 @@ void mqtt_publish_pump_energy(double energy_kwh);
 // Publish valve state by number (1-based) from pool state
 void mqtt_publish_valve(const pool_state_t *current_state, uint8_t valve_num);
 
+// Publish the coordinated Off/Low/High state derived from Auxiliary 1 and 2.
+void mqtt_publish_spa_jets(const pool_state_t *current_state);
+
 // Publish favourite select state; re-triggers discovery if options changed
 void mqtt_publish_favourite(const pool_state_t *state);
 
