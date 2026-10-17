@@ -211,7 +211,7 @@ The device serves a small web UI and JSON API at `http://poolcontrol-AABBCC.loca
 
 ### TCP debug port 7373
 
-The device exposes a raw TCP server on port 7373 that streams all bus traffic as hex and forwards any bytes you send back onto the bus. It also mirrors the device's log output, so you can monitor activity without a USB cable.
+The device exposes a raw TCP server on port 7373 that mirrors the device's log output and forwards any bytes you send back onto the bus, so you can monitor activity without a USB cable. Each bus message appears as an `RX MSG` log line in hex, followed by its decoded meaning.
 
 Connect to it at the device's hostname — `poolcontrol-A1B2C3.local` for a device provisioned via `POOL_A1B2C3`.
 
@@ -224,12 +224,12 @@ nc poolcontrol-A1B2C3.local 7373
 Example session:
 ```
 Connected to pool control bus bridge.
-UART bytes will be shown here in hex.
-Bytes you send will be forwarded to the bus.
+Bus messages will be shown here as RX MSG log lines in hex,
+followed by their decoded meaning.
+Send hex strings (e.g., '02 00 50 FF FF 03') to transmit to the bus.
 
-00
-02 00 50 FF FF 80 00 FD 0F DC 19 0E 01 28 03
-00
+I (02:56:34.163) MSG_DECODER: RX MSG: 02 00 50 FF FF 80 00 38 0F 17 C0 0D 00 CD 03
+W (02:56:34.165) MSG_DECODER: [Touch Screen -> Broadcast] Unhandled register - Reg=0xC0, Slot=0x0D, Payload[3]: C0 0D 00
 ```
 
 To send a raw command to the bus, type the bytes as a hex string and press Enter:

@@ -2326,9 +2326,10 @@ static bool handle_register_read_request(
             break;
         }
     }
+    // Unknown registers are not recorded here: the 0x38 reply carries the same
+    // {reg, slot} plus the value, and is recorded as unhandled itself.
     if (!found) {
         snprintf(desc, sizeof(desc), "0x%02X/0x%02X", reg_id, slot_id);
-        record_undocumented(data, len);
     }
 
     ESP_LOGI(TAG, "%s Register read request - %s", addr_info, desc);

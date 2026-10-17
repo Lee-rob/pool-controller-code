@@ -46,7 +46,7 @@ Requires ESP-IDF v5.5+ with environment sourced (`. $IDF_PATH/export.sh`).
 - **WiFi Station**: Connects to configured network and reconnects indefinitely with capped exponential backoff. Stored credentials are never cleared automatically — an unreachable AP is not evidence they are wrong
 - **WiFi Provisioning**: Rescue portal (SoftAP) with web-based credential configuration at http://192.168.4.1. Runs in APSTA alongside a still-retrying station and is torn down once that connects, so it is never a terminal state. Raised when no credentials are stored, or after the grace period in `config.h` (shorter when the AP actively rejects the credentials)
 - **Bus Interface**: 9600 baud on GPIO1 (RX) / GPIO2 (TX), TX inverted for transistor-based bus interface; encapsulated in `bus.c`
-- **TCP Bridge**: Port 7373, forwards UART data as hex strings to clients, accepts hex string commands from clients
+- **TCP Bridge**: Port 7373, mirrors the log output to clients (each bus frame appears in the decoder's `RX MSG` line), accepts hex string commands from clients
 - **Protocol Decoder**: Pattern-matching decoder using `memcmp()` for known message types
 - **MQTT Integration**: Publishes pool state to Home Assistant, supports discovery and commands
 - **HTTP API**: Web interface for status viewing and configuration

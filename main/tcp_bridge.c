@@ -242,8 +242,8 @@ static void tcp_bridge_task(void *pvParameters)
 
                 const char *hello =
                     "Connected to pool control bus bridge.\r\n"
-                    "UART bytes will be shown here in hex.\r\n"
-                    "Decoded messages will also be shown.\r\n"
+                    "Bus messages will be shown here as RX MSG log lines in hex,\r\n"
+                    "followed by their decoded meaning.\r\n"
                     "Send hex strings (e.g., '02 00 50 FF FF 03') to transmit to the bus.\r\n\r\n";
                 if (!send_to_client(client_sock, hello, strlen(hello))) {
                     ESP_LOGI(TAG, "Client dropped during greeting");
@@ -301,17 +301,10 @@ static void tcp_bridge_task(void *pvParameters)
                         }
                     }
 
+                    // The client sees the frame via the decoder's "RX MSG" log
+                    // line (mirrored over TCP), so it is not sent bare as well.
                     if (!is_loopback) {
                         s_config.decode_message(frame, frame_len);
-                    }
-
-                    if (client_sock >= 0) {
-                        hexLine[hex_pos]     = '\r';
-                        hexLine[hex_pos + 1] = '\n';
-                        if (!send_to_client(client_sock, hexLine, hex_pos + 2)) {
-                            // Decoding above already ran; just drop the client.
-                            tcp_bridge_close_client(&client_sock, &line_pos);
-                        }
                     }
                 } else if (s_config.on_resync) {
                     // Map each framing failure to its own resync category so the
