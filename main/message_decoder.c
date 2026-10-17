@@ -2066,8 +2066,8 @@ static bool handle_serial_number(
  * Sent by the Touchscreen (0x0050) to the Gateway (0x00F0). payload[0] is the
  * item, answered by the CMD 0x37 variant with the same byte 10: 0x01 = network
  * config (payload[1] = interface, 0x00 Wired / 0x01 WiFi), 0x02 = comms status,
- * 0x04 = serial number. 0x03 has never been answered by its own 0x37 and its
- * meaning is unknown. Log-only.
+ * 0x04 = serial number. 0x03 is the Touchscreen's Reconnect button, a command
+ * with no reply. Log-only.
  */
 static bool handle_gateway_info_request(
     const uint8_t *data, int len,
@@ -2092,7 +2092,7 @@ static bool handle_gateway_info_request(
             undocumented = payload_len != 1;
             break;
         case 0x03:
-            ESP_LOGI(TAG, "%s Internet Gateway info request - Unknown item (0x03)", addr_info);
+            ESP_LOGI(TAG, "%s Internet Gateway reconnect command", addr_info);
             undocumented = payload_len != 1;
             break;
         case 0x04:

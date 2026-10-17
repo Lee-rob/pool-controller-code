@@ -1,7 +1,7 @@
 # Internet Gateway Info Request (CMD 0x36), Touchscreen (0x0050) -> Gateway
 # (0x00F0), each followed by the Gateway's CMD 0x37 reply for the same item.
-# From the reference install while the Gateway was restarted from the
-# Touchscreen.
+# From two reference-install captures taken while using the Touchscreen's
+# Gateway pages.
 
 
 # Serial number (item 0x04)
@@ -26,6 +26,9 @@ I (22:45:24.834) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gatewa
 I (22:45:25.644) MSG_DECODER: RX MSG: 02 00 F0 FF FF 80 00 37 0F B6 02 00 00 02 03
 I (22:45:25.644) MSG_DECODER: [Internet Gateway -> Broadcast] Internet Gateway comms status - 0 (Idle)
 
-# Item 0x03: never answered by its own 0x37
-I (22:49:13.414) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0D 05 03 03 03
-I (22:49:13.414) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gateway info request - Unknown item (0x03)
+# Reconnect command (item 0x03): two presses of the Touchscreen's Reconnect
+# button. No 0x37 reply.
+I (01:21:36.645) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0D 05 03 03 03
+I (01:21:36.645) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gateway reconnect command
+I (01:21:41.145) MSG_DECODER: RX MSG: 02 00 50 00 F0 80 00 36 0D 05 03 03 03
+I (01:21:41.145) MSG_DECODER: [Touch Screen -> Internet Gateway] Internet Gateway reconnect command
