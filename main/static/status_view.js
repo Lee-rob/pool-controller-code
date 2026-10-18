@@ -240,6 +240,13 @@
       ['ORP', chemistry.orp_reading === null || chemistry.orp_reading === undefined ? null : chemistry.orp_reading + ' mV (setpoint ' + chemistry.orp_setpoint + ' mV)'],
       ['Chlorine output', chemistry.chlor_output_level]
     ];
+    if (chemistry.ph_reading_age_ms != null) waterRows.push(['pH sample age', Math.floor(chemistry.ph_reading_age_ms / 1000) + ' seconds']);
+    if (chemistry.orp_reading_age_ms != null) waterRows.push(['ORP sample age', Math.floor(chemistry.orp_reading_age_ms / 1000) + ' seconds']);
+    const chlorBus = chemistry.bus_diagnostics;
+    if (chlorBus && chlorBus.last_seen_age_ms != null) {
+      waterRows.push(['Viron last bus reply', Math.floor(chlorBus.last_seen_age_ms / 1000) + ' seconds ago']);
+      waterRows.push(['Chlorine production / G4 / Manual Off', 'Not yet decoded']);
+    }
     (data.heaters || []).forEach(function (heater) {
       const gas = heater.gas_status || {};
       waterRows.push(['Heater ' + (heater.index + 1), gas.status || heater.state || 'Unknown']);

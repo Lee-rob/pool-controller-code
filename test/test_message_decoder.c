@@ -17,9 +17,10 @@
 #include "nvs.h"
 
 // Mock FreeRTOS function implementations
+static uint32_t mock_ticks = 1000;
 uint32_t xTaskGetTickCount(void)
 {
-    return 1000;  // Mock tick count
+    return mock_ticks;
 }
 
 BaseType_t xSemaphoreTake(SemaphoreHandle_t xSemaphore, TickType_t xBlockTime)
@@ -76,6 +77,7 @@ static int tests_failed = 0;
 static void init_test_context(void)
 {
     memset(&test_pool_state, 0, sizeof(test_pool_state));
+    mock_ticks = 1000;
     test_ctx.pool_state = &test_pool_state;
     test_ctx.state_mutex = (SemaphoreHandle_t)&dummy_mutex;
     test_ctx.enable_mqtt = false;
@@ -1596,6 +1598,98 @@ void test_genus_heater_undocumented_status(void)
 /**
  * Run all tests
  */
+static bool chlor_sample_frame(uint8_t source, uint8_t command,
+                               const uint8_t *payload, int payload_len)
+{
+    uint8_t message[64] = {0x02, 0x00, source, 0xFF, 0xFF, 0x80, 0x00, command};
+    int length = payload_len + 12;
+    message[8] = length;
+    for (int i = 0; i < 9; i++) message[9] += message[i];
+    memcpy(message + 10, payload, payload_len);
+    for (int i = 0; i < payload_len; i++) message[length - 2] += payload[i];
+    message[length - 1] = 0x03;
+    return decode_message(message, length, &test_ctx);
+}
+
+static chlor_bus_sample_t *find_chlor_sample(uint8_t command, uint16_t key)
+{
+    for (int i = 0; i < CHLOR_BUS_SAMPLE_COUNT; i++) {
+        chlor_bus_sample_t *sample = &test_pool_state.chlor_bus_samples[i];
+        if (sample->valid && sample->command == command && sample->key == key) return sample;
+    }
+    return NULL;
+}
+
+static void test_chlor_passive_diagnostics(void)
+{
+    init_test_context();
+    uint8_t ph[] = {1, 75, 0}, orp[] = {2, 0x8A, 2};
+    chlor_sample_frame(0x84, 0x1D, ph, sizeof(ph));
+    chlor_sample_frame(0x84, 0x1D, orp, sizeof(orp));
+    chlor_bus_sample_t *sample = find_chlor_sample(0x1D, 1);
+    TEST_ASSERT(sample && sample->count == 1 && sample->changes == 0,
+                "First EQ chemistry target retained without inventing a transition");
+    TEST_ASSERT(find_chlor_sample(0x1D, 2) != NULL, "pH and ORP target slots retained separately");
+    mock_ticks += 500;
+    chlor_sample_frame(0x84, 0x1D, ph, sizeof(ph));
+    TEST_ASSERT(sample->count == 2 && sample->changes == 0 && sample->last_seen_ms == 1500,
+                "Repeated target refreshes evidence age without a false status change");
+    ph[1] = 74;
+    chlor_sample_frame(0x84, 0x1D, ph, sizeof(ph));
+    TEST_ASSERT(sample->changes == 1 && sample->previous[1] == 75 && sample->payload[1] == 74,
+                "Real target transition preserves old and new payloads");
+    TEST_ASSERT(test_pool_state.ph_setpoint_valid && !test_pool_state.ph_valid,
+                "Target reply does not imply a fresh chemistry measurement");
+
+    uint8_t unknown[] = {0x07, 0x20, 0x01};
+    TEST_ASSERT(!chlor_sample_frame(0x84, 0x13, unknown, sizeof(unknown)),
+                "Unknown EQ command remains unknown instead of guessing a fault mapping");
+    TEST_ASSERT(find_chlor_sample(0x13, 0) && !test_pool_state.chlor_mode_valid,
+                "Unknown status bytes captured without altering operating mode");
+    TEST_ASSERT(test_pool_state.messages_unknown_total == 1, "Raw capture preserves unknown-message accounting");
+
+    uint8_t reg1[] = {0xE9, 0x0B, 1, 0, 0, 0}, reg2[] = {0xE9, 0x00, 1};
+    chlor_sample_frame(0x84, 0x38, reg1, sizeof(reg1));
+    chlor_sample_frame(0x84, 0x38, reg2, sizeof(reg2));
+    TEST_ASSERT(find_chlor_sample(0x38, 0xE90B) && find_chlor_sample(0x38, 0xE900),
+                "Same register in different slots cannot masquerade as a changing status");
+
+    init_test_context();
+    chlor_sample_frame(0x90, 0x13, unknown, sizeof(unknown));
+    TEST_ASSERT(!find_chlor_sample(0x13, 0), "Other chlorinator models cannot contaminate EQ source evidence");
+    chlor_sample_frame(0x84, 0x1F, ph, sizeof(ph));
+    TEST_ASSERT(test_pool_state.ph_valid && test_pool_state.ph_reading_ms == 1000,
+                "pH timestamp belongs to actual measurement replies");
+    mock_ticks += 2000;
+    chlor_sample_frame(0x84, 0x1D, ph, sizeof(ph));
+    TEST_ASSERT(test_pool_state.ph_reading_ms == 1000, "Target refresh cannot make an old measurement look current");
+    chlor_sample_frame(0x84, 0x1F, orp, sizeof(orp));
+    TEST_ASSERT(test_pool_state.orp_valid && test_pool_state.orp_reading_ms == 3000,
+                "ORP measurement has its own freshness timestamp");
+
+    init_test_context();
+    uint8_t long_payload[24] = {0};
+    chlor_sample_frame(0x84, 0x13, long_payload, sizeof(long_payload));
+    long_payload[23] = 0x80;
+    chlor_sample_frame(0x84, 0x13, long_payload, sizeof(long_payload));
+    sample = find_chlor_sample(0x13, 0);
+    TEST_ASSERT(sample->payload_len == 24 && sample->changes == 1 && sample->previous_len == 24,
+                "Changes beyond the saved prefix are detected and original lengths retained");
+
+    init_test_context();
+    mock_ticks = UINT32_MAX - 4;
+    for (int i = 0; i < CHLOR_BUS_SAMPLE_COUNT; i++) {
+        chlor_sample_frame(0x84, 0x80 + i, ph, sizeof(ph));
+        mock_ticks++;
+    }
+    chlor_sample_frame(0x84, 0x80, ph, sizeof(ph)); // keep first key recent across wrap
+    mock_ticks++;
+    chlor_sample_frame(0x84, 0xA0, ph, sizeof(ph));
+    TEST_ASSERT(find_chlor_sample(0x80, 0) && !find_chlor_sample(0x81, 0) && find_chlor_sample(0xA0, 0),
+                "Bounded evidence cache evicts least recent key correctly across uptime wrap");
+    TEST_ASSERT(test_pool_state.chlor_bus_sample_evictions == 1, "Evidence cache reports when older keys were lost");
+}
+
 int main(void)
 {
     printf("\n");
@@ -1643,6 +1737,7 @@ int main(void)
     // Chlorinator tests
     printf("\n--- Chlorinator Tests ---\n");
     test_decode_chlor_ph_setpoint();
+    test_chlor_passive_diagnostics();
     test_decode_chlor_orp_setpoint();
     test_decode_chlor_set_pump_mode();
     test_decode_chlor_set_pump_mode_bad_byte0();

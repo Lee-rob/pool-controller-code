@@ -666,6 +666,16 @@ static esp_err_t provision_post_handler(httpd_req_t *req)
 // Pool Status Handler
 // ======================================================
 
+static void chlor_payload_hex(const uint8_t *payload, unsigned length,
+                              char output[CHLOR_BUS_PAYLOAD_BYTES * 3 + 1])
+{
+    unsigned count = length < CHLOR_BUS_PAYLOAD_BYTES ? length : CHLOR_BUS_PAYLOAD_BYTES;
+    output[0] = '\0';
+    for (unsigned i = 0; i < count; i++) {
+        snprintf(output + i * 3, 4, i + 1 < count ? "%02X " : "%02X", payload[i]);
+    }
+}
+
 static esp_err_t status_get_handler(httpd_req_t *req)
 {
     const esp_app_desc_t *app_desc = esp_app_get_description();
@@ -975,25 +985,86 @@ static esp_err_t status_get_handler(httpd_req_t *req)
 
     // Chlorinator
     cJSON *chlorinator = cJSON_CreateObject();
-    if (state.ph_valid) {
+    if (state.ph_setpoint_valid) {
         cJSON_AddNumberToObject(chlorinator, "ph_setpoint", state.ph_setpoint / 10.0);
-        cJSON_AddNumberToObject(chlorinator, "ph_reading",  state.ph_reading  / 10.0);
     } else {
         cJSON_AddNullToObject(chlorinator, "ph_setpoint");
-        cJSON_AddNullToObject(chlorinator, "ph_reading");
     }
-    if (state.orp_valid) {
+    if (state.ph_valid) {
+        cJSON_AddNumberToObject(chlorinator, "ph_reading", state.ph_reading / 10.0);
+        cJSON_AddNumberToObject(chlorinator, "ph_reading_age_ms", now_ms - state.ph_reading_ms);
+    } else {
+        cJSON_AddNullToObject(chlorinator, "ph_reading");
+        cJSON_AddNullToObject(chlorinator, "ph_reading_age_ms");
+    }
+    if (state.orp_setpoint_valid) {
         cJSON_AddNumberToObject(chlorinator, "orp_setpoint", state.orp_setpoint);
-        cJSON_AddNumberToObject(chlorinator, "orp_reading",  state.orp_reading);
     } else {
         cJSON_AddNullToObject(chlorinator, "orp_setpoint");
+    }
+    if (state.orp_valid) {
+        cJSON_AddNumberToObject(chlorinator, "orp_reading", state.orp_reading);
+        cJSON_AddNumberToObject(chlorinator, "orp_reading_age_ms", now_ms - state.orp_reading_ms);
+    } else {
         cJSON_AddNullToObject(chlorinator, "orp_reading");
+        cJSON_AddNullToObject(chlorinator, "orp_reading_age_ms");
     }
     if (state.chlor_output_level_valid) {
         cJSON_AddNumberToObject(chlorinator, "chlor_output_level", state.chlor_output_level);
     } else {
         cJSON_AddNullToObject(chlorinator, "chlor_output_level");
     }
+    // No verified EQ45 bus mapping exists for these states. Null must never
+    // become false/Off merely because no status frame has been received.
+    cJSON_AddNullToObject(chlorinator, "production_active");
+    cJSON_AddNullToObject(chlorinator, "g4_fault");
+    cJSON_AddNullToObject(chlorinator, "manual_off");
+    cJSON *chlor_bus = cJSON_CreateObject();
+    cJSON_AddStringToObject(chlor_bus, "source_address", "0x0084");
+    const seen_device_t *chlor_device = NULL;
+    for (int i = 0; i < state.num_seen_devices; i++) {
+        if (state.seen_devices[i].addr_hi == 0 && state.seen_devices[i].addr_lo == 0x84) {
+            chlor_device = &state.seen_devices[i];
+            break;
+        }
+    }
+    if (chlor_device) {
+        cJSON_AddNumberToObject(chlor_bus, "last_seen_age_ms", now_ms - chlor_device->last_seen_ms);
+        cJSON_AddNumberToObject(chlor_bus, "longest_message_gap_ms", chlor_device->longest_gap_ms);
+    } else {
+        cJSON_AddNullToObject(chlor_bus, "last_seen_age_ms");
+    }
+    cJSON_AddNumberToObject(chlor_bus, "sample_evictions", state.chlor_bus_sample_evictions);
+    cJSON *samples = cJSON_CreateArray();
+    for (int i = 0; i < CHLOR_BUS_SAMPLE_COUNT; i++) {
+        const chlor_bus_sample_t *sample = &state.chlor_bus_samples[i];
+        if (!sample->valid) continue;
+        cJSON *item = cJSON_CreateObject();
+        char label[16], hex[CHLOR_BUS_PAYLOAD_BYTES * 3 + 1];
+        snprintf(label, sizeof(label), "0x%02X", sample->command);
+        cJSON_AddStringToObject(item, "command", label);
+        snprintf(label, sizeof(label), "0x%04X", sample->destination);
+        cJSON_AddStringToObject(item, "destination", label);
+        if (sample->command == 0x1D || sample->command == 0x1F || sample->command == 0x38) {
+            cJSON_AddNumberToObject(item, "key", sample->key);
+        }
+        chlor_payload_hex(sample->payload, sample->payload_len, hex);
+        cJSON_AddStringToObject(item, "payload_hex", hex);
+        cJSON_AddNumberToObject(item, "payload_length", sample->payload_len);
+        cJSON_AddBoolToObject(item, "payload_truncated", sample->payload_len > CHLOR_BUS_PAYLOAD_BYTES);
+        cJSON_AddNumberToObject(item, "count", sample->count);
+        cJSON_AddNumberToObject(item, "changes", sample->changes);
+        cJSON_AddNumberToObject(item, "last_seen_age_ms", now_ms - sample->last_seen_ms);
+        if (sample->changes) {
+            chlor_payload_hex(sample->previous, sample->previous_len, hex);
+            cJSON_AddStringToObject(item, "previous_payload_hex", hex);
+            cJSON_AddNumberToObject(item, "previous_payload_length", sample->previous_len);
+            cJSON_AddNumberToObject(item, "last_change_age_ms", now_ms - sample->last_change_ms);
+        }
+        cJSON_AddItemToArray(samples, item);
+    }
+    cJSON_AddItemToObject(chlor_bus, "samples", samples);
+    cJSON_AddItemToObject(chlorinator, "bus_diagnostics", chlor_bus);
     cJSON_AddItemToObject(root, "chlorinator", chlorinator);
 
     // Internet Gateway

@@ -2469,6 +2469,7 @@ static bool handle_chlor_ph_reading(
     if (!state_lock(ctx, "pH reading")) return true;
     ctx->pool_state->ph_reading = value;
     ctx->pool_state->ph_valid = true;
+    ctx->pool_state->ph_reading_ms = (uint32_t)((uint64_t)xTaskGetTickCount() * portTICK_PERIOD_MS);
     state_unlock(ctx, true, &snapshot);
 
     if (ctx->enable_mqtt) {
@@ -2499,6 +2500,7 @@ static bool handle_chlor_orp_reading(
     if (!state_lock(ctx, "ORP reading")) return true;
     ctx->pool_state->orp_reading = value;
     ctx->pool_state->orp_valid = true;
+    ctx->pool_state->orp_reading_ms = (uint32_t)((uint64_t)xTaskGetTickCount() * portTICK_PERIOD_MS);
     state_unlock(ctx, true, &snapshot);
 
     if (ctx->enable_mqtt) {
@@ -2532,7 +2534,7 @@ static bool handle_chlor_status(
         default:   mode_name = "Unknown"; break;
     }
 
-    ESP_LOGI(TAG, "%s Chlorinator status - mode=%s (0x%02X)", addr_info, mode_name, mode);
+    ESP_LOGI(TAG, "%s Chlorinator raw status=0x%02X (tentative mode=%s; not production/fault status)", addr_info, mode, mode_name);
 
     // Documented modes are Off/Auto/On (0x00-0x02); flag anything else.
     if (mode > 0x02) {
@@ -3973,11 +3975,64 @@ static bool handle_controller_heartbeat(
 
 static bool dispatch_message(const uint8_t *data, int len, const uint8_t *payload, int payload_len, const char *addr_info, message_decoder_context_t *ctx);
 
-// This function assumes the framing layer has validated that the message buffer
-// has valid checksums, start and stop bytes etc. It does not repeat the validation.
-// Note also that this function can be called directly by the test harness and from 
-// the TX-echo path - in these cases it is incumbent on the caller to ensure that
-// messages are valid.
+// Called with the state lock held. Keep each register/chemistry slot separate;
+// otherwise alternating pH/ORP broadcasts would look like status transitions.
+// Full debug frames remain the authoritative capture when a payload is longer
+// than our bounded prefix. Hash the whole payload to detect changes past it.
+static void record_chlor_bus_sample(pool_state_t *state, const uint8_t *data,
+                                    const uint8_t *payload, int payload_len,
+                                    uint32_t now_ms)
+{
+    uint16_t key = 0;
+    if (data[7] == 0x1D || data[7] == 0x1F) {
+        key = payload_len > 0 ? payload[0] : 0xFFFF;
+    } else if (data[7] == 0x38) {
+        key = payload_len >= 2 ? ((uint16_t)payload[0] << 8) | payload[1] : 0xFFFF;
+    }
+    uint16_t destination = ((uint16_t)data[3] << 8) | data[4];
+    chlor_bus_sample_t *sample = NULL;
+    chlor_bus_sample_t *oldest = &state->chlor_bus_samples[0];
+    for (int i = 0; i < CHLOR_BUS_SAMPLE_COUNT; i++) {
+        chlor_bus_sample_t *entry = &state->chlor_bus_samples[i];
+        if (entry->valid && entry->command == data[7] && entry->key == key &&
+            entry->destination == destination) {
+            sample = entry;
+            break;
+        }
+        if (!entry->valid) {
+            oldest = entry;
+        } else if (oldest->valid && now_ms - entry->last_seen_ms > now_ms - oldest->last_seen_ms) {
+            oldest = entry;
+        }
+    }
+    if (!sample) {
+        sample = oldest;
+        if (sample->valid) state->chlor_bus_sample_evictions++;
+        memset(sample, 0, sizeof(*sample));
+        sample->valid = true;
+        sample->command = data[7];
+        sample->destination = destination;
+        sample->key = key;
+    }
+    uint32_t hash = 2166136261u;
+    for (int i = 0; i < payload_len; i++) hash = (hash ^ payload[i]) * 16777619u;
+    if (sample->count && (sample->payload_hash != hash || sample->payload_len != payload_len)) {
+        memcpy(sample->previous, sample->payload, sizeof(sample->previous));
+        sample->previous_len = sample->payload_len;
+        sample->changes++;
+        sample->last_change_ms = now_ms;
+    }
+    sample->payload_hash = hash;
+    sample->payload_len = payload_len;
+    memset(sample->payload, 0, sizeof(sample->payload));
+    memcpy(sample->payload, payload,
+           payload_len < CHLOR_BUS_PAYLOAD_BYTES ? payload_len : CHLOR_BUS_PAYLOAD_BYTES);
+    sample->count++;
+    sample->last_seen_ms = now_ms;
+}
+
+// The framing layer validates checksums and boundaries. Direct callers (tests
+// and TX-echo decoding) must likewise supply complete, valid frames.
 bool decode_message(const uint8_t *data, int len, message_decoder_context_t *ctx)
 {
     if (!ctx || !ctx->pool_state) {
@@ -4033,6 +4088,10 @@ bool decode_message(const uint8_t *data, int len, message_decoder_context_t *ctx
     // Register source address in the seen-devices registry (skip broadcast)
     if (!(src_hi == 0xFF && src_lo == 0xFF) && state_lock(ctx, "seen device registry")) {
         find_or_insert_seen_device_locked(ctx->pool_state, src_hi, src_lo);
+        if (src_hi == 0x00 && src_lo == 0x84) {
+            record_chlor_bus_sample(ctx->pool_state, data, payload, payload_len,
+                (uint32_t)((uint64_t)xTaskGetTickCount() * portTICK_PERIOD_MS));
+        }
         state_unlock(ctx, false, NULL);
     }
 

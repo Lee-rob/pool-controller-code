@@ -233,6 +233,25 @@ typedef struct {
     bool enabled_valid;   // True once enable flag has been received
 } favourite_t;
 
+#define CHLOR_BUS_SAMPLE_COUNT 8
+#define CHLOR_BUS_PAYLOAD_BYTES 16
+// Passive research samples for source 0x0084. Never used to control equipment.
+typedef struct {
+    bool valid;
+    uint8_t command;
+    uint16_t destination;
+    uint16_t key; // slot for 1D/1F; register + slot for 38; otherwise zero
+    uint8_t payload_len;
+    uint8_t previous_len;
+    uint8_t payload[CHLOR_BUS_PAYLOAD_BYTES];
+    uint8_t previous[CHLOR_BUS_PAYLOAD_BYTES];
+    uint32_t payload_hash;
+    uint32_t count;
+    uint32_t changes;
+    uint32_t last_seen_ms;
+    uint32_t last_change_ms;
+} chlor_bus_sample_t;
+
 typedef struct {
     // Temperature setpoints now live per-heater on heaters[] (pool_heater_t);
     // per-source temperature readings live on seen_device_t entries.
@@ -318,6 +337,10 @@ typedef struct {
     bool orp_valid;
     bool ph_setpoint_valid;
     bool orp_setpoint_valid;
+    uint32_t ph_reading_ms;
+    uint32_t orp_reading_ms;
+    chlor_bus_sample_t chlor_bus_samples[CHLOR_BUS_SAMPLE_COUNT];
+    uint32_t chlor_bus_sample_evictions;
     uint8_t chlor_mode;        // 0=Off, 1=Auto, 2=On (tentative — see PROTOCOL.md §32)
     bool chlor_mode_valid;
     uint8_t chlor_output_level;       // Chlorine output level 1–8 (from VX 11S v3, address 0x0081)
