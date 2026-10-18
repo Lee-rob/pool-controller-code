@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+### Changed
+### Fixed
+### Removed
+### Deprecated
+### Security
+
+## [1.18.0] - 2026-10-17
+### Added
 - Cleaning channels now get a Mode select in Home Assistant (e.g. "Cleaner Mode"), like the Filter channel's. It sets the channel directly to Off, Auto or On with CMD `0x0F`, instead of stepping it round with the toggle button. Like the Filter select, it only changes once the Touchscreen reports the new state
 - Filter and Cleaning channel entities in Home Assistant now have their own icons: `mdi:air-filter` for Filter and `mdi:vacuum` for Cleaning, on the state sensor, toggle button, Active sensor and Mode select. Icons customised in Home Assistant still take precedence
 - A channel's Active sensor in Home Assistant now shows Running / Not running instead of On / Off (`device_class: running`), so a dashboard tile highlights it while the channel is actually running
@@ -25,9 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The TCP debug port (7373) no longer sends each bus message as a bare hex line after its log output. The frame is already shown in the decoder's `RX MSG` log line, so it appeared twice. The connect banner and the README's example session now describe the `RX MSG` lines
 ### Fixed
 - PROTOCOL.md no longer describes the Firmware Version broadcast (CMD `0x0A`), or the Internet Gateway's CMD `0x12`, as sent only at device startup. Both repeat about once a minute. The `0x0A` section now notes that on one install the Connect 8/10 and RolaChem never send `0x0A`, even when the Touchscreen reboots
-### Removed
-### Deprecated
-### Security
+
 
 ## [1.18.0] - 2026-10-17
 ### Added
