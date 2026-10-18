@@ -827,6 +827,9 @@ static void publish_channel_discovery(const char *device_id, const char *mac_suf
             cJSON_AddStringToObject(root, "name", display_name);
             cJSON_AddStringToObject(root, "state_topic", state_topic);
             cJSON_AddStringToObject(root, "value_template", "{{ value_json.state }}");
+            // Expose the rest of the state JSON (active, power) as attributes,
+            // so a card on this entity can show them next to the state
+            cJSON_AddStringToObject(root, "json_attributes_topic", state_topic);
             if (icon) cJSON_AddStringToObject(root, "icon", icon);
             add_entity_ids(root, "sensor", mac_suffix, sensor_uid, "channel_%d", channel_num);
             cJSON_AddStringToObject(root, "availability_topic", avail_topic);
@@ -874,6 +877,9 @@ static void publish_channel_discovery(const char *device_id, const char *mac_suf
             cJSON_AddStringToObject(root, "name", active_name);
             cJSON_AddStringToObject(root, "state_topic", state_topic);
             cJSON_AddStringToObject(root, "value_template", "{{ 'ON' if value_json.active else 'OFF' }}");
+            // Shows as Running / Not running, and highlights while running
+            cJSON_AddStringToObject(root, "device_class", "running");
+            if (icon) cJSON_AddStringToObject(root, "icon", icon);
             add_entity_ids(root, "binary_sensor", mac_suffix, active_uid, "channel_%d_active", channel_num);
             cJSON_AddStringToObject(root, "availability_topic", avail_topic);
             cJSON_AddItemToObject(root, "device", build_device_cjson(device_id, mac_suffix));
@@ -980,6 +986,7 @@ static void publish_channel_discovery(const char *device_id, const char *mac_suf
         cJSON_AddItemToObject(root, "options", opts);
 
         cJSON_AddStringToObject(root, "value_template", "{{ value_json.state }}");
+        cJSON_AddStringToObject(root, "json_attributes_topic", state_topic);
         if (icon) cJSON_AddStringToObject(root, "icon", icon);
         add_entity_ids(root, "select", mac_suffix, mode_uid, "channel_%d_mode", channel_num);
         cJSON_AddStringToObject(root, "availability_topic", avail_topic);

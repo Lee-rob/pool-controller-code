@@ -509,6 +509,9 @@ void mqtt_publish_channel(const pool_state_t *current_state, uint8_t channel_id)
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "state",  state_name);
     cJSON_AddBoolToObject(root,   "active", channel->active);
+    // The same flag as display text, for a dashboard tile's state_content
+    // (HA shows the boolean attribute as a bare true/false)
+    cJSON_AddStringToObject(root, "running", channel->active ? "Running" : "Not running");
     cJSON_AddStringToObject(root, "name",   display_name);
     cJSON_AddNumberToObject(root, "configured_watts", configured_watts);
     if (power_watts_valid) {
