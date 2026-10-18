@@ -34,7 +34,9 @@ static void note_rx_activity(uint32_t now_us)
 
 static uint32_t bus_time_ms(void)
 {
-    return bus_time_us() / 1000U;
+    // Convert the full microsecond clock before truncating. Truncating first
+    // wraps at ~71.6 minutes and makes ages disagree with RTOS uptime.
+    return (uint32_t)((uint64_t)esp_timer_get_time() / 1000U);
 }
 
 void bus_get_diagnostics(bus_diagnostics_t *out)

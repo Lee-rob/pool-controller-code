@@ -46,7 +46,15 @@ void mqtt_publish_chlorinator(const pool_state_t *state) {}
 void mqtt_publish_pump(const pool_state_t *state) {}
 void mqtt_publish_service_mode(const pool_state_t *state) {}
 void mqtt_publish_light(const pool_state_t *state, uint8_t zone) {}
-void mqtt_publish_channel(const pool_state_t *state, uint8_t channel) {}
+static int channel_publish_calls;
+static uint8_t last_channel_published;
+static bool last_channel_active;
+void mqtt_publish_channel(const pool_state_t *state, uint8_t channel)
+{
+    channel_publish_calls++;
+    last_channel_published = channel;
+    last_channel_active = state->channels[channel - 1].active;
+}
 void mqtt_publish_valve(const pool_state_t *state, uint8_t valve_num) {}
 void mqtt_publish_spa_jets(const pool_state_t *state) {}
 void mqtt_publish_favourite(const pool_state_t *state) {}
@@ -662,80 +670,83 @@ void test_decode_connect10_dedicated_solar_channel(void)
                 "Dedicated Solar captured Off and inactive");
 }
 
-void test_dedicated_solar_uses_0x2c_runtime_not_ordinary_channel_bitmap(void)
+// Exact, checksum-valid frames from PoolSolar-20261018-130510-32f5b7.zip.
+// Expected activity follows the user's observed pump stop/start, independently
+// of the mode and the unchanged 0x2C configuration byte.
+static void decode_solar_capture_hex(const char *hex)
 {
+    uint8_t frame[64];
+    int len = 0;
+    unsigned value;
+    int consumed;
+    while (len < (int)sizeof(frame) && sscanf(hex, "%2x %n", &value, &consumed) == 1) {
+        frame[len++] = (uint8_t)value;
+        hex += consumed;
+    }
+    TEST_ASSERT(decode_message(frame, len, &test_ctx), "Captured Solar frame decodes");
+}
+
+void test_dedicated_solar_uses_controller_output_status(void)
+{
+    static const char *channel_status =
+        "02 00 50 FF FF 80 00 0B 25 00 08 09 01 00 FC 00 00 11 01 00 "
+        "00 00 00 00 00 00 00 00 00 00 00 00 01 05 01 27 03";
+    static const char *solar_off  = "02 00 50 FF FF 80 00 2C 12 0E 2B 00 02 00 02 04 33 03";
+    static const char *solar_auto = "02 00 50 FF FF 80 00 2C 12 0E 2B 01 02 00 02 04 34 03";
+    static const char *solar_on   = "02 00 50 FF FF 80 00 2C 12 0E 2B 02 02 00 02 04 35 03";
+    static const char *stopped = "02 00 62 FF FF 80 00 12 0F 03 00 00 00 00 03";
+    static const char *running = "02 00 62 FF FF 80 00 12 0F 03 00 04 00 04 03";
+
     init_test_context();
+    decode_solar_capture_hex(channel_status);
+    decode_solar_capture_hex(solar_off);
+    TEST_ASSERT(!test_pool_state.solar_active_valid,
+                "0x2C config byte 02 does not establish running state");
+    decode_solar_capture_hex(stopped);
+    TEST_ASSERT(test_pool_state.solar_active_valid && !test_pool_state.channels[1].active,
+                "Observed stopped pump reports inactive");
 
-    // Learn that channel 2 is the dedicated Solar controller. Its 0x0B tuple
-    // says Off/inactive, as observed on the Connect 10.
-    uint8_t channel_status[] = {
-        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x0B, 0x25, 0x00,
-        0x08,
-        0x09, 0x01, 0x00,
-        0xFC, 0x00, 0x00,
-        0x11, 0x01, 0x00,
-        0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00,
-        0x01, 0x01, 0x01,
-        0x23, 0x03
-    };
-    TEST_ASSERT(decode_message(channel_status, sizeof(channel_status), &test_ctx),
-                "Dedicated Solar baseline channel status decoded");
+    decode_solar_capture_hex(solar_auto);
+    TEST_ASSERT(test_pool_state.channels[1].state == 1 && !test_pool_state.channels[1].active,
+                "Auto mode alone does not assert pump activity");
+    test_ctx.enable_mqtt = true;
+    channel_publish_calls = 0;
+    decode_solar_capture_hex(running);
+    TEST_ASSERT(test_pool_state.channels[1].active && test_pool_state.solar_active,
+                "Controller status bit 04 follows observed pump start");
+    TEST_ASSERT(channel_publish_calls == 1 && last_channel_published == 2 && last_channel_active,
+                "Controller output transition immediately publishes Solar to HA");
+    TEST_ASSERT(test_pool_state.solar_status_byte == 4,
+                "Raw controller output status is retained for diagnostics");
 
-    // CMD 0x2C supplies the authoritative selected mode.
-    uint8_t solar_auto[] = {
-        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x2C, 0x12, 0x0E,
-        0x23, 0x01, 0x00, 0x00, 0x04, 0x07, 0x2F, 0x03
-    };
-    TEST_ASSERT(decode_message(solar_auto, sizeof(solar_auto), &test_ctx),
-                "Solar Auto status decoded");
-    TEST_ASSERT(test_pool_state.solar_mode_valid && test_pool_state.solar_mode == 1,
-                "Solar mode retained from CMD 0x2C");
-    TEST_ASSERT(test_pool_state.channels[1].state == 1,
-                "Dedicated Solar channel reports Auto from CMD 0x2C");
-    TEST_ASSERT(test_pool_state.solar_active_valid && !test_pool_state.solar_active,
-                "CMD 0x2C reports dedicated Solar inactive");
-
-    // A running capture changes CMD 0x2C payload byte 2 from 0x00 to 0x02.
-    // This runtime byte is authoritative for the dedicated Solar output.
-    uint8_t solar_running[] = {
-        0x02, 0x00, 0x50, 0xFF, 0xFF, 0x80, 0x00, 0x2C, 0x12, 0x0E,
-        0x2B, 0x01, 0x02, 0x00, 0x02, 0x04, 0x34, 0x03
-    };
-    TEST_ASSERT(decode_message(solar_running, sizeof(solar_running), &test_ctx),
-                "Running Solar status decoded");
-    TEST_ASSERT(test_pool_state.solar_active && test_pool_state.channels[1].active,
-                "CMD 0x2C marks the dedicated Solar output active");
-
-    // Reproduce the live installation: CMD 0x0D says only ordinary channel 8
-    // is active while the dedicated Solar output is genuinely running.
-    uint8_t active_channels[] = {
-        0x02, 0x00, 0x50, 0x00, 0x6F, 0x80, 0x00, 0x0D, 0x0D, 0x5B,
-        0x80, 0x80, 0x03
-    };
-    TEST_ASSERT(decode_message(active_channels, sizeof(active_channels), &test_ctx),
-                "Active-channel bitmap decoded");
-    TEST_ASSERT(test_pool_state.active_channels_valid &&
-                test_pool_state.active_channels_bitmask == 0x80,
-                "Active-channel bitmap retained");
-    TEST_ASSERT(test_pool_state.channels[1].active &&
-                test_pool_state.solar_active_valid && test_pool_state.solar_active,
-                "CMD 0x0D omission cannot clear running dedicated Solar");
-
-    // A following stale 0x0B tuple must not overwrite either authoritative
-    // value: mode stays Auto and activity stays on.
-    TEST_ASSERT(decode_message(channel_status, sizeof(channel_status), &test_ctx),
-                "Following dedicated Solar channel status decoded");
+    decode_solar_capture_hex("02 00 50 00 6F 80 00 0D 0D 5B 80 80 03");
+    decode_solar_capture_hex(channel_status);
     TEST_ASSERT(test_pool_state.channels[1].state == 1 && test_pool_state.channels[1].active,
-                "Stale 0x0B Solar tuple cannot overwrite mode or activity");
+                "Ordinary bitmap and stale FC 00 00 tuple cannot overwrite Solar");
 
-    // A later inactive CMD 0x2C is the event that clears Solar activity.
-    TEST_ASSERT(decode_message(solar_auto, sizeof(solar_auto), &test_ctx),
-                "Inactive Auto Solar status decoded");
-    TEST_ASSERT(!test_pool_state.channels[1].active && !test_pool_state.solar_active,
-                "CMD 0x2C clears dedicated Solar when its runtime state stops");
+    decode_solar_capture_hex(solar_on);
+    TEST_ASSERT(test_pool_state.channels[1].state == 2 && test_pool_state.channels[1].active,
+                "Observed Auto to On keeps output running");
+
+    decode_solar_capture_hex(solar_off);
+    TEST_ASSERT(test_pool_state.channels[1].state == 0 && test_pool_state.channels[1].active,
+                "Mode change does not fabricate an output transition");
+    channel_publish_calls = 0;
+    decode_solar_capture_hex(stopped);
+    TEST_ASSERT(!test_pool_state.solar_active && !test_pool_state.channels[1].active,
+                "Controller status clears activity when the pump physically stops");
+    TEST_ASSERT(channel_publish_calls == 1 && !last_channel_active,
+                "Pump stop immediately publishes inactive to HA");
+    decode_solar_capture_hex(solar_off);
+    TEST_ASSERT(!test_pool_state.channels[1].active,
+                "Repeated 0x2C config byte 02 cannot reassert false activity");
+
+    init_test_context();
+    decode_solar_capture_hex(running);
+    decode_solar_capture_hex(solar_auto);
+    decode_solar_capture_hex(channel_status);
+    TEST_ASSERT(test_pool_state.channels[1].state == 1 && test_pool_state.channels[1].active,
+                "Controller status received before channel discovery is preserved");
 }
 
 // An install with a plain single-speed pump never broadcasts CMD 0x3B, so
@@ -1616,7 +1627,7 @@ int main(void)
     printf("\n--- Channel Status Tests ---\n");
     test_decode_channel_status_all_off();
     test_decode_connect10_dedicated_solar_channel();
-    test_dedicated_solar_uses_0x2c_runtime_not_ordinary_channel_bitmap();
+    test_dedicated_solar_uses_controller_output_status();
     test_channel_status_resets_pump_speed_when_filter_off();
     test_channel_status_does_not_fabricate_pump_speed_without_telemetry();
     test_decode_channel_status_lights_active();

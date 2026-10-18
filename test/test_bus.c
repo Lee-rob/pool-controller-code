@@ -12,7 +12,7 @@
 
 static int tests_run;
 static int tests_failed;
-static uint32_t fake_now_us;
+static uint64_t fake_now_us;
 static int buffered_checks_remaining;
 static bool buffered_forever;
 static esp_err_t buffered_result;
@@ -88,7 +88,9 @@ esp_err_t uart_wait_tx_done(uart_port_t uart_num, uint32_t timeout)
 }
 int uart_read_bytes(uart_port_t uart_num, void *buf, uint32_t len, uint32_t timeout)
 {
-    (void)uart_num; (void)buf; (void)len; (void)timeout; return 0;
+    (void)uart_num; (void)timeout;
+    if (len > 0) { ((uint8_t *)buf)[0] = 0x02; return 1; }
+    return 0;
 }
 esp_err_t uart_get_buffered_data_len(uart_port_t uart_num, size_t *size)
 {
@@ -150,6 +152,21 @@ int main(void)
     uart_write_result = 1;
     CHECK(bus_send_bytes(frame, sizeof(frame)) < 0,
           "a partial UART write is reported as failure");
+
+    reset_bus();
+    // Reproduce the captured diagnostic error after multiple 32-bit-us wraps.
+    fake_now_us = 65700000000ULL;
+    uint8_t received;
+    CHECK(bus_read(&received, 1, 0) == 1, "RX is recorded after 18 hours uptime");
+    bus_diagnostics_t diagnostics;
+    bus_get_diagnostics(&diagnostics);
+    CHECK(diagnostics.last_rx_ms == 65700000U,
+          "RX diagnostic keeps the full uptime before conversion to milliseconds");
+    CHECK(bus_send_bytes(frame, sizeof(frame)) == (int)sizeof(frame),
+          "TX arbitration still succeeds after microsecond-clock wraps");
+    bus_get_diagnostics(&diagnostics);
+    CHECK(diagnostics.last_tx_ms >= 65700000U && diagnostics.last_tx_ms < 65700100U,
+          "TX diagnostic uses the same millisecond epoch as the status page");
 
     printf("Bus arbitration summary: %d passed, %d failed\n",
            tests_run - tests_failed, tests_failed);

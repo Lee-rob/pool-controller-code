@@ -254,12 +254,14 @@ typedef struct {
     uint8_t active_channels_bitmask;
     bool active_channels_valid;
 
-    // CMD 0x2C is authoritative for the dedicated Solar controller's selected
-    // mode and its runtime byte is authoritative for Solar output activity.
+    // Dedicated Solar mode is from CMD 0x2C. Actual output activity is reported
+    // independently by Connect 8/10 (0x0062) CMD 0x12 payload[1] bit 2.
     uint8_t solar_mode;       // 0=Off, 1=Auto, 2=On
     bool solar_mode_valid;
     bool solar_active;
     bool solar_active_valid;
+    uint8_t solar_status_byte;
+    uint32_t solar_status_ms;
 
     // Valves (up to MAX_VALVE_SLOTS)
     valve_state_t valves[MAX_VALVE_SLOTS];

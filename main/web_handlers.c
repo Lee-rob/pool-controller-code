@@ -734,6 +734,24 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     }
     cJSON_AddItemToObject(root, "bus_diagnostics", bus);
 
+    cJSON *solar = cJSON_CreateObject();
+    if (state.solar_mode_valid) {
+        static const char *SOLAR_MODES[] = {"Off", "Auto", "On"};
+        cJSON_AddStringToObject(solar, "mode", SOLAR_MODES[state.solar_mode]);
+    } else {
+        cJSON_AddNullToObject(solar, "mode");
+    }
+    if (state.solar_active_valid) {
+        cJSON_AddBoolToObject(solar, "active", state.solar_active);
+        cJSON_AddNumberToObject(solar, "last_output_status_age_ms", now_ms - state.solar_status_ms);
+        cJSON_AddNumberToObject(solar, "controller_status_byte", state.solar_status_byte);
+    } else {
+        cJSON_AddNullToObject(solar, "active");
+        cJSON_AddNullToObject(solar, "last_output_status_age_ms");
+    }
+    cJSON_AddStringToObject(solar, "activity_source", "0x0062 CMD 0x12 payload[1] bit 2");
+    cJSON_AddItemToObject(root, "solar", solar);
+
     // Devices observed on the bus
     cJSON *devices = cJSON_CreateArray();
     for (int i = 0; i < state.num_seen_devices; i++) {
