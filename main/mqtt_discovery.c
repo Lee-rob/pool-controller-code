@@ -2117,13 +2117,20 @@ void mqtt_publish_discovery(void)
 
     // Favourite select (snapshot state for dynamic options)
     {
-        pool_state_t snapshot = {0};
-        if (s_pool_state_mutex &&
-            xSemaphoreTake(s_pool_state_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
-            snapshot = s_pool_state;
-            xSemaphoreGive(s_pool_state_mutex);
+        // Discovery runs in the MQTT event callback. Do not spend that
+        // caller's stack on the complete, extensible pool state object.
+        pool_state_t *snapshot = calloc(1, sizeof(*snapshot));
+        if (snapshot) {
+            if (s_pool_state_mutex &&
+                xSemaphoreTake(s_pool_state_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+                *snapshot = s_pool_state;
+                xSemaphoreGive(s_pool_state_mutex);
+            }
+            publish_favourite_discovery(device_id, mac_suffix, snapshot);
+            free(snapshot);
+        } else {
+            ESP_LOGE(TAG, "Cannot allocate favourite discovery snapshot");
         }
-        publish_favourite_discovery(device_id, mac_suffix, &snapshot);
     }
 
     // Note: Chemistry (pH/ORP readings and setpoints, chlorine output level),

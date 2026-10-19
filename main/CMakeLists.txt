@@ -52,3 +52,11 @@ idf_component_register(
         led_strip
         json
 )
+
+# Preserve target-compiler stack measurements for release checks. The heater
+# worker must also fail compilation if a full pool_state_t local is reintroduced.
+target_compile_options(${COMPONENT_LIB} PRIVATE -fstack-usage)
+set_source_files_properties("heater_freshness.c" PROPERTIES
+    COMPILE_OPTIONS "-Werror=frame-larger-than=1024")
+set_source_files_properties("mqtt_discovery.c" PROPERTIES
+    COMPILE_OPTIONS "-Werror=frame-larger-than=2048")

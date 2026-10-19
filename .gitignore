@@ -8,3 +8,5 @@ main/secrets.h
 .installer-preview/
 test/*.o
 test/test_commands
+__pycache__/
+*.pyc

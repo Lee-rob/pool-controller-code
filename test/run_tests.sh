@@ -56,6 +56,8 @@ for test_src in test_*.c; do
         extra_srcs=(../main/lighting_colors.c ../main/channel_states.c)
     elif [ "$module" = "bus" ]; then
         extra_cflags=(-DTEST_FREERTOS_100HZ)
+    elif [ "$module" = "heater_freshness" ]; then
+        extra_cflags=(-Wl,--wrap=malloc,--wrap=free)
     fi
 
     echo "========================================"

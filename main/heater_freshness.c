@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include <stdlib.h>
 
 #define HEATER_RESPONSE_TIMEOUT_MS 180000U
 #define HEATER_FRESHNESS_POLL_MS 10000U
@@ -12,10 +13,12 @@ static const char *TAG = "HEATER_FRESHNESS";
 
 static void freshness_task(void *arg)
 {
-    (void)arg;
+    // This worker has a 3072-byte stack. pool_state_t can exceed that on
+    // custom builds, so its snapshot is allocated once by the starter and
+    // belongs to this task for its lifetime. Never put a full state here.
+    pool_state_t *snapshot = arg;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(HEATER_FRESHNESS_POLL_MS));
-        pool_state_t snapshot;
         bool publish = false;
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
         if (s_pool_state_mutex && xSemaphoreTake(s_pool_state_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
@@ -35,14 +38,22 @@ static void freshness_task(void *arg)
                 ESP_LOGW(TAG, "Viron heater telemetry expired after %u seconds",
                          HEATER_RESPONSE_TIMEOUT_MS / 1000);
             }
-            snapshot = s_pool_state;
+            if (publish) *snapshot = s_pool_state;
             xSemaphoreGive(s_pool_state_mutex);
         }
-        if (publish) mqtt_publish_heater_telemetry(&snapshot, 0, true);
+        if (publish) mqtt_publish_heater_telemetry(snapshot, 0, true);
     }
 }
 
 void heater_freshness_start(void)
 {
-    xTaskCreate(freshness_task, "heater_freshness", 3072, NULL, 3, NULL);
+    pool_state_t *snapshot = malloc(sizeof(*snapshot));
+    if (!snapshot) {
+        ESP_LOGE(TAG, "Cannot allocate heater freshness snapshot");
+        return;
+    }
+    if (xTaskCreate(freshness_task, "heater_freshness", 3072, snapshot, 3, NULL) != pdPASS) {
+        free(snapshot);
+        ESP_LOGE(TAG, "Cannot create heater freshness task");
+    }
 }

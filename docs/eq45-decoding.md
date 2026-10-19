@@ -1,5 +1,10 @@
 # EQ45 status decoding: controls12
 
+**The original controls12 binary is withdrawn because its heater-freshness
+task can overflow its stack. Use controls12a or later.** See
+[controls12a](controls12a.md) for the fix and validation. The diagnostic
+protocol limitations below still apply.
+
 This is a passive diagnostic release, not a claimed G4 fix. It builds on
 controls11 and retains the complete custom valve / Spa Jets controls,
 deadhead safeguards, heater support, power tracking, solar activity fix,
