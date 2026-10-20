@@ -59,7 +59,7 @@ for test_src in test_*.c; do
     elif [ "$module" = "heater_freshness" ]; then
         extra_cflags=(-Wl,--wrap=malloc,--wrap=free)
     elif [ "$module" = "mqtt_publish" ]; then
-        extra_cflags=(-ffunction-sections -fdata-sections -Wl,--gc-sections)
+        extra_cflags=(-Werror=implicit-function-declaration -ffunction-sections -fdata-sections -Wl,--gc-sections)
     fi
 
     echo "========================================"

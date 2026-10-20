@@ -10,6 +10,7 @@
 #include <string.h>
 #include <time.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static const char *TAG = "MQTT_PUBLISH";
 
