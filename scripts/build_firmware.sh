@@ -61,6 +61,7 @@ if ! command -v cmake >/dev/null || ! command -v ninja >/dev/null; then
 fi
 
 cd "${project_root}"
+export PROJECT_VER="${PROJECT_VER:-$(python scripts/firmware_version.py)}"
 echo "ESP-IDF: ${IDF_PATH}"
 echo "Project version: ${PROJECT_VER:-derived from git}"
 

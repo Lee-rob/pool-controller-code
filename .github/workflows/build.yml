@@ -11,9 +11,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: firmware-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -22,13 +27,7 @@ jobs:
 
       - name: Determine version
         id: ver
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            VERSION="${{ github.ref_name }}"
-          else
-            VERSION=$(git describe --always --tags 2>/dev/null || echo unknown)
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        run: python3 scripts/firmware_version.py
 
       - name: Build firmware
         uses: espressif/esp-idf-ci-action@v1
@@ -43,34 +42,52 @@ jobs:
 
       - name: Stage release artifacts
         working-directory: build
+        env:
+          VER: ${{ steps.ver.outputs.version }}
         run: |
-          VER="${{ steps.ver.outputs.version }}"
+          set -euo pipefail
           mkdir -p ../artifacts
           cp pool-controller.bin "../artifacts/pool-controller-update-${VER}.bin"
           esptool.py --chip esp32c6 merge_bin \
             -o "../artifacts/pool-controller-full-${VER}.bin" \
             @flash_args
+          zip "../artifacts/pool-controller-debug-${VER}.zip" \
+            pool-controller.elf pool-controller.map flasher_args.json
+          cd ../artifacts
+          sha256sum ./*.bin ./*.zip > SHA256SUMS.txt
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
           name: pool-controller-${{ steps.ver.outputs.version }}
-          path: artifacts/*.bin
+          path: artifacts/*
           if-no-files-found: error
 
       - name: Create draft release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || (steps.ver.outputs.custom == 'true' && github.repository == 'Lee-rob/pool-controller-code' && github.event_name != 'pull_request')
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
           draft: true
+          prerelease: ${{ steps.ver.outputs.custom == 'true' }}
           files: |
-            artifacts/pool-controller-update-${{ steps.ver.outputs.version }}.bin
-            artifacts/pool-controller-full-${{ steps.ver.outputs.version }}.bin
+            artifacts/*
+          body: |
+            Firmware built from commit ${{ github.sha }} with ESP-IDF v5.5 for ESP32-C6.
+
+            Existing controllers: upload `pool-controller-update-${{ steps.ver.outputs.version }}.bin` on the controller's `/update` page. Keep the matching debug ZIP for crash diagnosis. SHA256SUMS.txt lists the file checksums.
+
+            The `full` image is for initial provisioning of a fresh board. It overwrites the initial flash layout; use the application image for normal updates and recovery that must preserve saved settings.
+
+            Custom branch builds are published as prereleases in Lee-rob/pool-controller-code. Publishing a build does not install it on a controller.
           generate_release_notes: true
           fail_on_unmatched_files: true
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || (steps.ver.outputs.custom == 'true' && github.repository == 'Lee-rob/pool-controller-code' && github.event_name != 'pull_request')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ steps.ver.outputs.version }}" --draft=false --repo "${{ github.repository }}"
+          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_REPO: ${{ github.repository }}
+        run: gh release edit "$RELEASE_VERSION" --draft=false --repo "$RELEASE_REPO"

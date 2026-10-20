@@ -182,11 +182,11 @@
 // GitHub Firmware Update
 // ======================================================
 
-// Repository that publishes firmware releases. The latest release is resolved
-// via https://github.com/<owner>/<repo>/releases/latest and the OTA image is
+// Repository that publishes this branch's custom firmware releases. Releases
+// are discovered via https://github.com/<owner>/<repo>/releases.atom; the OTA image is
 // pulled from that release's asset (named <asset_prefix><tag>.bin, matching the
 // artifact the build workflow uploads).
-#define FW_UPDATE_GITHUB_OWNER         "marklynch"
+#define FW_UPDATE_GITHUB_OWNER         "Lee-rob"
 #define FW_UPDATE_GITHUB_REPO          "pool-controller-code"
 #define FW_UPDATE_ASSET_PREFIX         "pool-controller-update-"  // + <tag> + ".bin"
 

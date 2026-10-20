@@ -1,5 +1,11 @@
 # Pool Controller
 
+**Custom branch:** download this build from
+[Lee-rob's releases](https://github.com/Lee-rob/pool-controller-code/releases).
+Use the `update` application image for an existing controller. See
+[custom build instructions](docs/custom-builds.md) for versions, local builds
+and recovery. The upstream links below describe the original project.
+
   [![Build](https://github.com/marklynch/pool-controller-code/actions/workflows/build.yml/badge.svg)](https://github.com/marklynch/pool-controller-code/actions/workflows/build.yml
   )
   [![Release](https://img.shields.io/github/v/release/marklynch/pool-controller-code)](https://github.com/marklynch/pool-controller-code/releases)

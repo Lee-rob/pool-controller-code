@@ -14,3 +14,6 @@ jobs:
       - name: Run host-based test suite
         working-directory: test
         run: ./run_tests.sh
+
+      - name: Run Python regression tests
+        run: python3 -m unittest discover -s test -p 'test_*.py'
