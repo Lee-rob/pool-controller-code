@@ -139,7 +139,9 @@
 #define TCP_UART_BUFFER_SIZE           64     // UART read buffer for TCP bridge - large enough for typical bus messages
 #define TCP_BUFFER_SIZE                256     // TCP socket buffer size
 #define TCP_LINE_BUFFER_SIZE           512     // Line buffering for TCP bridge
-#define TCP_TASK_STACK_SIZE            8192    // TCP bridge task stack size
+// This task also calls the decoder, HA discovery, JSON formatting and MQTT.
+// Budget for the complete nested call path, not just tcp_bridge_task's frame.
+#define TCP_TASK_STACK_SIZE            16384   // Bytes (ESP-IDF FreeRTOS)
 #define TCP_TASK_PRIORITY              5       // TCP bridge task priority
 
 // TCP keepalive — reap a silently dead client (one that never sends FIN/RST)

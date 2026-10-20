@@ -34,6 +34,15 @@ static tcp_bridge_config_t s_config = {0};
 
 // Task handle for cleanup
 static TaskHandle_t s_bridge_task_handle = NULL;
+static uint32_t s_stack_min_free_bytes = UINT32_MAX;
+
+bool tcp_bridge_get_stack_min_free_bytes(uint32_t *out)
+{
+    uint32_t value = __atomic_load_n(&s_stack_min_free_bytes, __ATOMIC_RELAXED);
+    if (out == NULL || value == UINT32_MAX) return false;
+    *out = value;
+    return true;
+}
 
 // Message reassembly buffer
 static framing_buffer_t s_framing_buffer;
@@ -156,10 +165,15 @@ static void tcp_bridge_task(void *pvParameters)
     char addr_str[128];
     int listen_sock = -1;
     int client_sock = -1;
-    uint8_t uart_buf[TCP_UART_BUFFER_SIZE];
-    uint8_t tcp_buf[TCP_BUFFER_SIZE];
-    char line_buf[TCP_LINE_BUFFER_SIZE];
+    // Exactly one bridge task exists (like the file's framing/TX state).
+    // Keep its long-lived work buffers out of the decoder/publisher call stack.
+    // Do not make the log callback's buffer static: that callback is concurrent.
+    static uint8_t uart_buf[TCP_UART_BUFFER_SIZE];
+    static uint8_t tcp_buf[TCP_BUFFER_SIZE];
+    static char line_buf[TCP_LINE_BUFFER_SIZE];
     int line_pos = 0;
+    TickType_t last_stack_sample = 0;
+    bool stack_warning_logged = false;
 
     // Create listening socket
     while (listen_sock < 0) {
@@ -275,12 +289,12 @@ static void tcp_bridge_task(void *pvParameters)
             }
 
             // Extract and process all complete messages
-            uint8_t frame[BUS_MESSAGE_MAX_SIZE];
+            static uint8_t frame[BUS_MESSAGE_MAX_SIZE];
             int frame_len;
             framing_result_t result;
             while ((result = framing_process_next(&s_framing_buffer, frame, &frame_len)) != FRAMING_NEED_MORE_DATA) {
                 if (result == FRAMING_FRAME_READY) {
-                    char hexLine[3 * BUS_MESSAGE_MAX_SIZE + 3];
+                    static char hexLine[3 * BUS_MESSAGE_MAX_SIZE + 3];
                     int hex_pos = 0;
                     for (int i = 0; i < frame_len; i++) {
                         if (hex_pos < (int)(sizeof(hexLine) - 3)) {
@@ -446,6 +460,20 @@ static void tcp_bridge_task(void *pvParameters)
             }
         }
 
+        // The watermark remembers deeper calls even after they have returned.
+        // Sample on this task, then expose only an atomic value to HTTP; querying
+        // a task handle from HTTP could race with task deletion during stop.
+        TickType_t now = xTaskGetTickCount();
+        if ((TickType_t)(now - last_stack_sample) >= pdMS_TO_TICKS(1000)) {
+            uint32_t remaining = (uint32_t)uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t);
+            __atomic_store_n(&s_stack_min_free_bytes, remaining, __ATOMIC_RELAXED);
+            last_stack_sample = now;
+            if (remaining < 2048 && !stack_warning_logged) {
+                stack_warning_logged = true;
+                ESP_LOGW(TAG, "Stack margin low: minimum %lu of %u bytes remain",
+                         (unsigned long)remaining, TCP_TASK_STACK_SIZE);
+            }
+        }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
@@ -459,6 +487,7 @@ static void tcp_bridge_task(void *pvParameters)
         close(listen_sock);
     }
     s_bridge_task_handle = NULL;
+    __atomic_store_n(&s_stack_min_free_bytes, UINT32_MAX, __ATOMIC_RELAXED);
     if (s_stopped_sem) {
         xSemaphoreGive(s_stopped_sem);
     }
@@ -510,6 +539,7 @@ esp_err_t tcp_bridge_start(const tcp_bridge_config_t *config)
     }
 
     // Create bridge task
+    __atomic_store_n(&s_stack_min_free_bytes, UINT32_MAX, __ATOMIC_RELAXED);
     BaseType_t result = xTaskCreate(
         tcp_bridge_task,
         "tcp_bridge",

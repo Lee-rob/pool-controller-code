@@ -9,6 +9,7 @@
 #include "device_serial.h"
 #include "firmware_update.h"
 #include "bus.h"
+#include "tcp_bridge.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_timer.h"
@@ -698,6 +699,17 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(firmware, "compile_time", compile_time);
     cJSON_AddStringToObject(firmware, "idf_version",  app_desc->idf_ver);
     cJSON_AddItemToObject(root, "firmware", firmware);
+
+    cJSON *runtime = cJSON_CreateObject();
+    cJSON_AddNumberToObject(runtime, "reset_reason_code", (int)esp_reset_reason());
+    cJSON_AddNumberToObject(runtime, "bridge_stack_size_bytes", TCP_TASK_STACK_SIZE);
+    uint32_t bridge_stack_free;
+    if (tcp_bridge_get_stack_min_free_bytes(&bridge_stack_free)) {
+        cJSON_AddNumberToObject(runtime, "bridge_stack_min_free_bytes", bridge_stack_free);
+    } else {
+        cJSON_AddNullToObject(runtime, "bridge_stack_min_free_bytes");
+    }
+    cJSON_AddItemToObject(root, "runtime", runtime);
 
     // Message decode counters
     cJSON *msg_counts = cJSON_CreateObject();

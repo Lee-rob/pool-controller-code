@@ -60,3 +60,6 @@ set_source_files_properties("heater_freshness.c" PROPERTIES
     COMPILE_OPTIONS "-Werror=frame-larger-than=1024")
 set_source_files_properties("mqtt_discovery.c" PROPERTIES
     COMPILE_OPTIONS "-Werror=frame-larger-than=2048")
+# The bridge work buffers must not creep back onto its nested decode stack.
+set_source_files_properties("tcp_bridge.c" PROPERTIES
+    COMPILE_OPTIONS "-Werror=frame-larger-than=768")

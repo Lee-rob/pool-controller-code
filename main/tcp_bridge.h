@@ -77,4 +77,8 @@ esp_err_t tcp_bridge_start(const tcp_bridge_config_t *config);
  */
 esp_err_t tcp_bridge_stop(void);
 
+// Minimum unused stack observed since this bridge task started. Returns false
+// until the task has sampled its watermark, or after it has stopped.
+bool tcp_bridge_get_stack_min_free_bytes(uint32_t *out);
+
 #endif // TCP_BRIDGE_H

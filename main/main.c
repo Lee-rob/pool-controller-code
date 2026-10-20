@@ -140,6 +140,7 @@ void app_main(void)
 {
     // Configure logging early to control verbosity during startup
     configure_log_levels();
+    ESP_LOGI(TAG, "Boot reset reason code: %d", (int)esp_reset_reason());
 
     // Init NVS (required for Wi-Fi and provisioning)
     esp_err_t ret = nvs_flash_init();
