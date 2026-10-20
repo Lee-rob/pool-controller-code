@@ -11,6 +11,7 @@ import queue
 import re
 import shutil
 import socket
+import sys
 import threading
 import time
 import urllib.request
@@ -207,7 +208,14 @@ class Recorder:
             for name in ("bus-timeline.txt", "status-samples.jsonl", "capture-health.jsonl", "incident.json"):
                 archive.write(work/name, name)
         os.replace(temporary, destination)
-        shutil.rmtree(work)
+        # OneDrive / antivirus can briefly lock a completed incident folder.
+        # The atomic ZIP save has already succeeded: cleanup is optional and
+        # must not terminate unattended recording or hide that saved evidence.
+        try:
+            shutil.rmtree(work)
+        except OSError as error:
+            print("NOTE: Saved ZIP retained; temporary files could not be removed at %s: %s" %
+                  (work, error), flush=True)
         return destination
 
     def close(self):
@@ -299,6 +307,15 @@ def desktop():
     return Path.home()/"Desktop" if (Path.home()/"Desktop").exists() else Path.cwd()
 
 
+def capture_root():
+    # Desktop may be redirected into OneDrive or blocked by folder protection.
+    # Keep live rotating files local; the completed ZIPs can be copied later.
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        return (Path(local) if local else Path.home()/"AppData"/"Local")/"PoolControllerCaptures"
+    return desktop()
+
+
 def request_awake():
     """Temporarily inhibit Windows idle sleep on this thread, not lid actions."""
     if os.name != "nt":
@@ -341,10 +358,14 @@ def main():
     if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
         parser.error("Use a controller HTTP address without embedded credentials")
     base = parsed.scheme + "://" + parsed.netloc
-    folder = args.output or desktop()/("PoolChlorinatorWatch-" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6])
+    folder = args.output or capture_root()/("PoolChlorinatorWatch-" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6])
     if folder.exists() and any(folder.iterdir()):
         parser.error("Choose an empty output folder")
-    recorder = Recorder(folder, args.pre_minutes*60, args.post_minutes*60)
+    try:
+        recorder = Recorder(folder, args.pre_minutes*60, args.post_minutes*60)
+    except OSError as error:
+        parser.exit(1, "Cannot create capture files at %s: %s. Choose a writable, empty local --output folder.\n" %
+                    (folder, error))
     detector = Detector(args.flat_minutes*60, args.stale_minutes*60, args.warmup_minutes*60)
     stop, messages = threading.Event(), queue.Queue(maxsize=8)
     counters = {"frames": 0, "connected": False}
@@ -355,7 +376,8 @@ def main():
     restore_sleep = request_awake()
     print("Watching for %.1f hours. Output: %s" % (args.hours, folder), flush=True)
     print("No equipment commands or automatic resets. Keep this PC awake and this window open.", flush=True)
-    print("Close other PuTTY/debug/capture clients. Triggers mean suspected faults, not confirmed G4.", flush=True)
+    print("Close other network debug clients on port %s; USB serial PuTTY can stay open." % args.debug_port, flush=True)
+    print("Triggers mean suspected faults, not confirmed G4.", flush=True)
     end, progress, cooldown, incidents = time.monotonic()+args.hours*3600, 0, 0, 0
     latest = None
     exit_code = 0

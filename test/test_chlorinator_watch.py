@@ -100,6 +100,38 @@ class DetectorTests(unittest.TestCase):
 
 
 class RecorderTests(unittest.TestCase):
+    def test_cleanup_access_denied_keeps_zip_and_recording_continues(self):
+        with tempfile.TemporaryDirectory() as folder:
+            r = watch.Recorder(folder)
+            r.record("bus", "before cleanup error")
+            r.start({"code": "test"})
+            with patch.object(watch.shutil, "rmtree", side_effect=PermissionError("Access denied")):
+                first = r.finish()
+            self.assertTrue(first.exists())
+            self.assertTrue((Path(folder)/"incident-01"/"records.jsonl").exists())
+            with zipfile.ZipFile(first) as z:
+                self.assertIsNone(z.testzip())
+                self.assertIn(b"before cleanup error", z.read("bus-timeline.txt"))
+            r.record("bus", "after cleanup error")
+            r.start({"code": "second"})
+            second = r.finish()
+            self.assertNotEqual(first, second)
+            with zipfile.ZipFile(second) as z:
+                self.assertIn(b"after cleanup error", z.read("bus-timeline.txt"))
+            r.close()
+
+    def test_failed_zip_save_preserves_raw_incident_evidence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            r = watch.Recorder(folder)
+            r.record("bus", "keep this evidence")
+            r.start({"code": "test"})
+            with patch.object(watch.os, "replace", side_effect=PermissionError("Access denied")):
+                with self.assertRaises(PermissionError):
+                    r.finish()
+            self.assertIn("keep this evidence", (Path(folder)/"incident-01"/"records.jsonl").read_text())
+            self.assertFalse((Path(folder)/"incident-01.zip").exists())
+            r.close()
+
     def test_precursor_and_aftermath_are_saved_without_manual_markers(self):
         with tempfile.TemporaryDirectory() as folder:
             clock = [0]
@@ -158,6 +190,20 @@ class RecorderTests(unittest.TestCase):
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_windows_default_uses_local_app_data(self):
+        with tempfile.TemporaryDirectory() as local:
+            with patch.object(watch.sys, "platform", "win32"), \
+                 patch.dict(watch.os.environ, {"LOCALAPPDATA": local}), \
+                 patch.object(watch, "desktop", side_effect=AssertionError("Desktop must not be used")):
+                self.assertEqual(watch.capture_root(), Path(local)/"PoolControllerCaptures")
+
+    def test_windows_default_without_environment_has_local_fallback(self):
+        with tempfile.TemporaryDirectory() as home:
+            with patch.object(watch.sys, "platform", "win32"), \
+                 patch.dict(watch.os.environ, {}, clear=True), \
+                 patch.object(watch.Path, "home", return_value=Path(home)):
+                self.assertEqual(watch.capture_root(), Path(home)/"AppData"/"Local"/"PoolControllerCaptures")
+
     def test_windows_sleep_request_is_restored(self):
         api = MagicMock(return_value=0x80000000)
         fake = MagicMock()

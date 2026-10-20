@@ -6,8 +6,9 @@ extra packages, button presses or equipment commands are needed.
 
 ## Start on Windows
 
-Download `Watch-Chlorinator.py` into Downloads, close PuTTY and any other debug
-or capture clients, then run this in PowerShell. Replace the placeholder with
+Download `Watch-Chlorinator.py` into Downloads, close any other network debug
+clients using port 7373, then run this in PowerShell. USB serial PuTTY logging
+can stay open alongside the watcher. Replace the placeholder with
 the controller's current IP address:
 
 ```powershell
@@ -54,9 +55,12 @@ distinctions; it does not infer cell production or reset equipment.
 
 ## What gets saved
 
-The output folder is `PoolChlorinatorWatch-…` on the Windows Desktop, including
-when Desktop is redirected to OneDrive. Use `--output PATH` for another empty
-folder. Each suspected event automatically saves an `incident-XX.zip` with:
+On Windows, the output folder is
+`%LOCALAPPDATA%\PoolControllerCaptures\PoolChlorinatorWatch-…`, outside the
+Desktop/OneDrive sync location. The full path is printed at startup. Open
+`%LOCALAPPDATA%\PoolControllerCaptures` in File Explorer to find the captures.
+Other platforms keep the Desktop/current-directory default. Use `--output PATH`
+for another empty writable folder. Each suspected event saves an `incident-XX.zip` with:
 
 - 30 minutes of preceding traffic, when available, and 10 minutes afterwards.
 - Raw timestamped bus/debug lines, full HTTP status snapshots and connection
@@ -79,6 +83,13 @@ pool traffic is much smaller, but the requested pre-window is not guaranteed
 before the program has run that long. Do not delete an active incident folder.
 If the window is forcibly closed, flushed rolling/incident records remain;
 final ZIP creation requires an orderly finish.
+
+If Windows refuses to remove a completed incident's temporary folder, the
+already-saved ZIP is kept and recording continues with a note. The leftover
+folder can be retained with the evidence. This does not bypass permissions:
+an actual save/write failure still stops recording and retains the raw files.
+For an earlier version's access-denied error, preserve the entire old capture
+folder and any incident ZIPs; do not delete it or rerun into that nonempty folder.
 
 Check the folder later and send back the incident ZIPs. There is no need to
 watch the display waiting for a fault. If you happen to see G4, a photo and PC
@@ -103,13 +114,15 @@ controller. No Python package installation is required.
 
 ## Validation
 
-Fourteen automated tests cover frozen values with fresh messages, stale or
+Eighteen automated tests cover frozen values with fresh messages, stale or
 missing samples, overnight inactivity, a pump stopping at the fault, uptime
 rollover, reboot and network loss. They check bounded recording, preservation
 of prehistory/aftermath and trigger merging. Local HTTP/TCP integration tests
 exercise connection loss/recovery and run the complete unattended program,
 which automatically produces a ZIP with samples before and after a simulated
-flatline. Windows sleep-state calls are tested with a mock API. Actual Windows
+flatline. Cleanup denial is injected after a successful save, and the next
+incident must still save; a failed ZIP save must retain raw evidence. Windows
+output-directory selection and sleep-state calls are tested with mocks. Actual Windows
 network/desktop integration still requires confirmation on the user's PC.
 
 ```bash
