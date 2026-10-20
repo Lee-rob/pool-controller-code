@@ -39,10 +39,16 @@ void xSemaphoreGive(SemaphoreHandle_t xSemaphore)
 // Mock MQTT functions (disabled in tests)
 void mqtt_publish_mode(const pool_state_t *state) {}
 void mqtt_publish_heater_setpoints(const pool_state_t *state, int index) {}
-void mqtt_publish_temperature_reading(const pool_state_t *state, int dev_idx, uint8_t sensor_index) {}
+static unsigned temperature_publish_calls[2];
+void mqtt_publish_temperature_reading(const pool_state_t *state, int dev_idx, uint8_t sensor_index)
+{
+    temperature_publish_calls[sensor_index - 1]++;
+}
 void mqtt_publish_heater(const pool_state_t *state, int index) {}
 void mqtt_publish_gas_heater(const pool_state_t *state, int index) {}
-void mqtt_publish_heater_telemetry(const pool_state_t *state, int index, bool force) {}
+static unsigned heater_telemetry_calls;
+void mqtt_publish_heater_telemetry(const pool_state_t *state, int index, bool force)
+{ heater_telemetry_calls++; }
 void mqtt_publish_chlorinator(const pool_state_t *state) {}
 void mqtt_publish_pump(const pool_state_t *state) {}
 void mqtt_publish_service_mode(const pool_state_t *state) {}
@@ -1620,6 +1626,50 @@ static chlor_bus_sample_t *find_chlor_sample(uint8_t command, uint16_t key)
     return NULL;
 }
 
+static void test_temperature_samples_are_independent(void)
+{
+    init_test_context();
+    test_ctx.enable_mqtt = true;
+    memset(temperature_publish_calls, 0, sizeof(temperature_publish_calls));
+    uint8_t temps[] = {24, 46};
+    TEST_ASSERT(chlor_sample_frame(0x62, 0x16, temps, 2), "Two valid temperatures decoded");
+    TEST_ASSERT(temperature_publish_calls[0] == 1 && temperature_publish_calls[1] == 1,
+                "Both sensors published from the same frame");
+    temps[1] = 0xFF;
+    chlor_sample_frame(0x62, 0x16, temps, 2);
+    TEST_ASSERT(temperature_publish_calls[0] == 2 && temperature_publish_calls[1] == 1,
+                "Invalid roof sample does not republish its cached reading");
+    temps[0] = 0xFF; temps[1] = 47;
+    chlor_sample_frame(0x62, 0x16, temps, 2);
+    TEST_ASSERT(temperature_publish_calls[0] == 2 && temperature_publish_calls[1] == 2,
+                "Valid roof sample publishes even when water sample is invalid");
+    temps[1] = 0xFF;
+    chlor_sample_frame(0x62, 0x16, temps, 2);
+    TEST_ASSERT(temperature_publish_calls[0] == 2 && temperature_publish_calls[1] == 2,
+                "Two invalid samples do not create history points");
+    temps[0] = 24;
+    chlor_sample_frame(0x62, 0x16, temps, 1);
+    TEST_ASSERT(temperature_publish_calls[0] == 3 && temperature_publish_calls[1] == 2,
+                "Missing roof sample does not republish its cached reading");
+
+    init_test_context();
+    test_ctx.enable_mqtt = true;
+    heater_telemetry_calls = 0;
+    temps[0] = 0xFF;
+    chlor_sample_frame(0x71, 0x16, temps, 1);
+    TEST_ASSERT(test_pool_state.heaters[0].communications_online && heater_telemetry_calls == 1,
+                "Invalid heater temperature still publishes its genuine communications heartbeat");
+    TEST_ASSERT(temperature_publish_calls[0] == 3,
+                "Invalid heater temperature does not publish a numeric sample");
+    temps[0] = 35;
+    chlor_sample_frame(0x71, 0x16, temps, 1);
+    mock_ticks += 1000;
+    chlor_sample_frame(0x71, 0x16, temps, 1);
+    TEST_ASSERT(heater_telemetry_calls == 3 &&
+                test_pool_state.heaters[0].device_last_response_ms == mock_ticks,
+                "Unchanged heater temperature refreshes the genuine response heartbeat");
+}
+
 static void test_chlor_passive_diagnostics(void)
 {
     init_test_context();
@@ -1714,6 +1764,7 @@ int main(void)
     test_viron_heater_setpoint_broadcast();
     test_heater_device_setpoint_two_heaters();
     test_decode_temp_reading();
+    test_temperature_samples_are_independent();
     test_decode_heater_on();
     test_decode_heater_off();
 

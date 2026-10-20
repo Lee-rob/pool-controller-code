@@ -799,7 +799,7 @@ static bool handle_temp_reading(
 
     bool publish_temp2 = (dev_idx >= 0)
                       && !ctx->pool_state->seen_devices[dev_idx].single_sensor_source
-                      && ctx->pool_state->seen_devices[dev_idx].temp2_valid;
+                      && payload_len >= 2 && !temp_is_invalid(payload[1]);
     // A direct temperature report from the Viron heater is a genuine device
     // sample, even when the temperature value itself has not changed.
     if (data[1] == 0x00 && data[2] == 0x71) {
@@ -811,12 +811,10 @@ static bool handle_temp_reading(
     }
     state_unlock(ctx, true, &snapshot);
 
-    if (t1_invalid || dev_idx < 0) {
-        return true;  // Invalid temp1 or registry full: skip publish.
-    }
-
     if (ctx->enable_mqtt) {
-        mqtt_publish_temperature_reading(&snapshot, dev_idx, 1);
+        if (!t1_invalid && dev_idx >= 0) {
+            mqtt_publish_temperature_reading(&snapshot, dev_idx, 1);
+        }
         if (publish_temp2) {
             mqtt_publish_temperature_reading(&snapshot, dev_idx, 2);
         }

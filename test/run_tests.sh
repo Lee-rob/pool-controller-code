@@ -58,6 +58,8 @@ for test_src in test_*.c; do
         extra_cflags=(-DTEST_FREERTOS_100HZ)
     elif [ "$module" = "heater_freshness" ]; then
         extra_cflags=(-Wl,--wrap=malloc,--wrap=free)
+    elif [ "$module" = "mqtt_publish" ]; then
+        extra_cflags=(-ffunction-sections -fdata-sections -Wl,--gc-sections)
     fi
 
     echo "========================================"
