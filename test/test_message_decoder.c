@@ -42,7 +42,11 @@ void xSemaphoreGive(SemaphoreHandle_t xSemaphore)
 // Mock MQTT functions (disabled in tests)
 void mqtt_publish_mode(const pool_state_t *state) {}
 void mqtt_publish_heater_setpoints(const pool_state_t *state, int index) {}
-void mqtt_publish_temperature_reading(const pool_state_t *state, int dev_idx, uint8_t sensor_index) {}
+static unsigned temperature_publish_calls[2];
+void mqtt_publish_temperature_reading(const pool_state_t *state, int dev_idx, uint8_t sensor_index)
+{
+    temperature_publish_calls[sensor_index - 1]++;
+}
 void mqtt_publish_heater(const pool_state_t *state, int index) {}
 void mqtt_publish_gas_heater(const pool_state_t *state, int index) {}
 static int heater_config_publishes = 0;
@@ -89,6 +93,20 @@ static void set_heater_config(uint8_t heater1_type, bool heater2_configured)
     test_pool_state.heater1_type_valid       = true;
     test_pool_state.heater2_configured       = heater2_configured;
     test_pool_state.heater2_configured_valid = true;
+}
+
+static bool decode_test_frame(uint8_t source, uint8_t command,
+                              const uint8_t *payload, int payload_len)
+{
+    uint8_t message[64] = {0x02, 0x00, source, 0xFF, 0xFF, 0x80, 0x00, command};
+    if (payload_len < 0 || payload_len > 52) return false;
+    int length = payload_len + 12;
+    message[8] = length;
+    for (int i = 0; i < 9; i++) message[9] += message[i];
+    memcpy(message + 10, payload, payload_len);
+    for (int i = 0; i < payload_len; i++) message[length - 2] += payload[i];
+    message[length - 1] = 0x03;
+    return decode_message(message, length, &test_ctx);
 }
 
 #define TEST_ASSERT(condition, message) \
@@ -2059,6 +2077,36 @@ void test_genus_heater_undocumented_status(void)
 /**
  * Run all tests
  */
+static void test_temperature_samples_are_independent(void)
+{
+    init_test_context();
+    test_ctx.enable_mqtt = true;
+    memset(temperature_publish_calls, 0, sizeof(temperature_publish_calls));
+    uint8_t temps[] = {24, 46};
+    TEST_ASSERT(decode_test_frame(0x62, 0x16, temps, 2), "Two valid temperatures decoded");
+    TEST_ASSERT(temperature_publish_calls[0] == 1 && temperature_publish_calls[1] == 1,
+                "Both sensors published from the same frame");
+    temps[1] = 0xFF;
+    decode_test_frame(0x62, 0x16, temps, 2);
+    TEST_ASSERT(temperature_publish_calls[0] == 2 && temperature_publish_calls[1] == 1,
+                "Invalid roof sample does not republish its cached reading");
+    temps[0] = 0xFF; temps[1] = 47;
+    decode_test_frame(0x62, 0x16, temps, 2);
+    TEST_ASSERT(temperature_publish_calls[0] == 2 && temperature_publish_calls[1] == 2,
+                "Valid roof sample publishes even when water sample is invalid");
+    temps[1] = 0xFF;
+    decode_test_frame(0x62, 0x16, temps, 2);
+    TEST_ASSERT(temperature_publish_calls[0] == 2 && temperature_publish_calls[1] == 2,
+                "Two invalid samples do not create history points");
+    temps[0] = 24;
+    decode_test_frame(0x62, 0x16, temps, 1);
+    TEST_ASSERT(temperature_publish_calls[0] == 3 && temperature_publish_calls[1] == 2,
+                "Missing roof sample does not republish its cached reading");
+    decode_test_frame(0x62, 0x31, temps, 1);
+    TEST_ASSERT(temperature_publish_calls[0] == 3,
+                "Alternate CMD 0x31 remains log-only and does not duplicate history");
+}
+
 int main(void)
 {
     printf("\n");
@@ -2088,6 +2136,7 @@ int main(void)
     test_heater_configured_helper();
     test_heater_config_change_publishes();
     test_decode_temp_reading();
+    test_temperature_samples_are_independent();
     test_decode_heater_on();
     test_decode_heater_off();
     test_decode_heater_bit_ignored_until_type_known();
