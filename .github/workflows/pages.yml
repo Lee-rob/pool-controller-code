@@ -50,10 +50,14 @@ jobs:
     # main-branch builds that produce no release. Only tag builds carry a
     # release to publish; on a tag push workflow_run.head_branch is the tag
     # name. push and workflow_dispatch always deploy, using the latest release.
+    # The fork distributes custom firmware through Releases and controller OTA.
+    # Keep the upstream installer, but skip Pages unless a fork explicitly opts in.
     if: >-
-      github.event_name != 'workflow_run' ||
+      (github.repository == 'marklynch/pool-controller-code' ||
+      vars.ENABLE_WEB_INSTALLER == 'true') &&
+      (github.event_name != 'workflow_run' ||
       (github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'v'))
+      startsWith(github.event.workflow_run.head_branch, 'v')))
     runs-on: ubuntu-latest
     environment:
       name: github-pages
